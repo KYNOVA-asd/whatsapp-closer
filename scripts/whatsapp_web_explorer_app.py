@@ -504,9 +504,9 @@ class ExplorerApp(tk.Tk):
                 reason = item.get("reason", "")
             elif source == "participants":
                 title = str(idx + 1)
-                phone = item.get("phone", "")
+                phone = item.get("phone") or "sin numero en TXT"
                 sender = item.get("sender", "")
-                context = item.get("last_text", "")
+                context = item.get("phone_raw") or "remitente exportado como nombre"
                 reason = f"{item.get('messages', 0)} mensaje(s)"
             else:
                 title = item.get("title") or "sin titulo"
@@ -569,15 +569,18 @@ class ExplorerApp(tk.Tk):
             if not sender:
                 continue
             phone = ""
+            phone_raw = ""
             for raw in re.findall(r"\+?\d[\d\s().-]{6,}\d", sender):
                 phone = self._normalize_phone(raw) or ""
                 if phone:
+                    phone_raw = raw
                     break
             item = participants.setdefault(
                 sender,
                 {
                     "sender": sender,
                     "phone": phone,
+                    "phone_raw": phone_raw,
                     "line": line_no,
                     "at": f"{date} {time_text}",
                     "messages": 0,
@@ -590,6 +593,7 @@ class ExplorerApp(tk.Tk):
             item["at"] = f"{date} {time_text}"
             if phone and not item.get("phone"):
                 item["phone"] = phone
+                item["phone_raw"] = phone_raw
         return list(participants.values())
 
     def _candidate_reason(self, raw: str, context: str, sender: str, field: str) -> str:
