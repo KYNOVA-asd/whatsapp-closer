@@ -289,7 +289,8 @@ class ExplorerApp(tk.Tk):
 
         actions = ttk.Frame(templates, style="Panel.TFrame")
         actions.grid(row=7, column=0, sticky="ew", pady=(12, 0))
-        ttk.Button(actions, text="Guardar todo", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT)
+        ttk.Button(actions, text="Guardar todo", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(actions, text="Actualizar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT)
 
         numbers = self._panel(tabs)
         numbers.columnconfigure(0, weight=1)
@@ -337,10 +338,12 @@ class ExplorerApp(tk.Tk):
         numbers_actions.grid(row=5, column=0, sticky="ew", pady=(12, 0))
         ttk.Button(numbers_actions, text="Importar CSV", command=self.import_blast_csv).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Preparar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Actualizar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Limpiar cola", style="Danger.TButton", command=self.clear_blast_queue).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Simular ronda", style="Gold.TButton", command=self.simulate_blast_round).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(numbers_actions, text="Enviar seleccionado", style="Danger.TButton", command=self.send_selected_blast).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(numbers_actions, text="Enviar siguiente", style="Danger.TButton", command=self.send_next_blast).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(numbers_actions, text="Enviar bloque", style="Danger.TButton", command=self.send_blast_batch).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Enviar seleccionado", style="Accent.TButton", command=self.send_selected_blast).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Enviar siguiente", style="Accent.TButton", command=self.send_next_blast).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Enviar bloque", style="Accent.TButton", command=self.send_blast_batch).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Guardar todo", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT)
 
         tabs.add(dashboard, text="Dashboard")
@@ -597,7 +600,7 @@ class ExplorerApp(tk.Tk):
             added += 1
         self.save_blaster_state(show_message=False)
         self.update_blast_metrics()
-        self.update_blast_send_status("Cola preparada para revision")
+        self.update_blast_send_status(f"Cola actualizada con: {self.blast_message_name_var.get().strip() or 'plantilla activa'}")
         messagebox.showinfo("Cola preparada", f"Listos para revision: {added}. Sin telefono: {skipped}.")
 
     def _has_blast_phone(self, lead: Lead) -> bool:
@@ -614,6 +617,17 @@ class ExplorerApp(tk.Tk):
                 self._queue_set(idx, "SIMULADO", phone, text)
         self.save_blaster_state(show_message=False)
         self.update_blast_metrics()
+
+    def clear_blast_queue(self) -> None:
+        if self._queue_count() == 0:
+            messagebox.showinfo("Cola vacia", "No hay filas para limpiar.")
+            return
+        if not messagebox.askyesno("Limpiar cola", "Borrar toda la cola preparada?"):
+            return
+        self._queue_clear()
+        self.save_blaster_state(show_message=False)
+        self.update_blast_metrics()
+        self.update_blast_send_status("Cola limpia")
 
     def send_selected_blast(self) -> None:
         selected = self._queue_selection_index()
