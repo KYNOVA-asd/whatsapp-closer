@@ -301,6 +301,8 @@ class ExplorerApp(tk.Tk):
         ttk.Button(numbers_actions, text="Importar CSV", command=self.import_blast_csv).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Preparar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Simular ronda", style="Gold.TButton", command=self.simulate_blast_round).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Enviar seleccionado", style="Danger.TButton", command=self.send_selected_blast).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Enviar siguiente", style="Danger.TButton", command=self.send_next_blast).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Guardar todo", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT)
 
         tabs.add(dashboard, text="Dashboard")
@@ -579,6 +581,51 @@ class ExplorerApp(tk.Tk):
             self.queue.insert(idx, value.replace("REVISION", "SIMULADO", 1))
         self.save_blaster_state(show_message=False)
         self.update_blast_metrics()
+
+    def send_selected_blast(self) -> None:
+        selected = self.queue.curselection()
+        if not selected:
+            messagebox.showwarning("Sin seleccion", "Selecciona un mensaje de la cola.")
+            return
+        self._send_blast_queue_item(int(selected[0]))
+
+    def send_next_blast(self) -> None:
+        for idx in range(self.queue.size()):
+            status, _phone, _message = self._parse_queue_item(self.queue.get(idx))
+            if status in {"REVISION", "SIMULADO"}:
+                self._send_blast_queue_item(idx)
+                return
+        messagebox.showinfo("Cola lista", "No hay mensajes pendientes por enviar.")
+
+    def _send_blast_queue_item(self, index: int) -> None:
+        value = self.queue.get(index)
+        status, phone, text = self._parse_queue_item(value)
+        if status == "ENVIADO":
+            messagebox.showinfo("Ya enviado", "Ese mensaje ya esta marcado como enviado.")
+            return
+        if not phone or not text:
+            messagebox.showwarning("Formato invalido", "No pude detectar telefono y mensaje en esa fila.")
+            return
+        if not messagebox.askyesno("Confirmar envio", f"Enviar este mensaje por WhatsApp Web?\n\nPara: {phone}\n\n{text}"):
+            return
+        try:
+            self._run_bridge("send", "--chat", phone, "--text", text)
+        except RuntimeError as exc:
+            messagebox.showerror("No pude enviar", str(exc))
+            return
+        self.queue.delete(index)
+        self.queue.insert(index, f"ENVIADO: {phone} -> {text}")
+        self.queue.selection_clear(0, END)
+        self.queue.selection_set(index)
+        self.save_blaster_state(show_message=False)
+        self.update_blast_metrics()
+
+    def _parse_queue_item(self, value: str) -> tuple[str, str, str]:
+        match = re.match(r"^(REVISION|SIMULADO|ENVIADO):\s*(.*?)\s*->\s*(.*)$", value or "", flags=re.S)
+        if not match:
+            return "", "", ""
+        status, phone, text = match.groups()
+        return status, phone.strip(), text.strip()
 
     def refresh_blast_message_list(self) -> None:
         self.blast_message_list.delete(0, END)
