@@ -41,13 +41,6 @@ class Lead:
     score: int
 
 
-DEMO_LEADS = [
-    Lead("Yo Mero", "Yo Mero", "nuevo", "Hola", "Leer conversacion real y responder", 50),
-    Lead("Lead curso bienes raices", "5215500000000", "calificado", "Cuanto sale? Se me hace caro.", "Responder objecion", 62),
-    Lead("Lead molesto", "5215500000001", "escalado", "Ya van tres veces que pregunto lo mismo.", "Pasar a humano", 28),
-]
-
-
 class ExplorerApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -106,7 +99,7 @@ class ExplorerApp(tk.Tk):
         actions = ttk.Frame(header)
         actions.pack(side=tk.RIGHT)
         ttk.Button(actions, text="Abrir WhatsApp Web", style="Accent.TButton", command=self.open_edge).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(actions, text="⟳", width=3, command=self.load_demo).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(actions, text="⟳", width=3, command=self.refresh_from_whatsapp).pack(side=LEFT, padx=(0, 8))
         ttk.Button(actions, text="Guardar", style="Gold.TButton", command=self.save_leads).pack(side=LEFT)
 
         nav = ttk.Frame(root)
@@ -154,7 +147,7 @@ class ExplorerApp(tk.Tk):
         top.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         ttk.Label(top, text="Bandeja de ventas", style="PanelTitle.TLabel").pack(side=LEFT)
         ttk.Button(top, text="Importar CSV", command=self.import_csv).pack(side=tk.RIGHT, padx=(8, 0))
-        ttk.Button(top, text="Demo", command=self.load_demo).pack(side=tk.RIGHT)
+        ttk.Button(top, text="Leer WhatsApp", command=self.refresh_from_whatsapp).pack(side=tk.RIGHT)
         ttk.Label(crm, text="Selecciona un lead para leer WhatsApp real, generar borrador y cerrar seguimiento.", style="PanelMuted.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 8))
 
         columns = ("nombre", "telefono", "etapa", "pendiente", "score")
@@ -283,8 +276,6 @@ class ExplorerApp(tk.Tk):
                 self.leads = [Lead(**item) for item in json.loads(LEADS_FILE.read_text(encoding="utf-8"))]
             except (json.JSONDecodeError, TypeError):
                 self.leads = []
-        if not self.leads:
-            self.leads = DEMO_LEADS.copy()
         self.refresh_tree()
         self.load_config()
 
@@ -300,6 +291,15 @@ class ExplorerApp(tk.Tk):
             self.tree.focus(current)
             self.selected_index = int(current)
             self.show_lead(self.leads[self.selected_index])
+        else:
+            self.selected_index = None
+            self.detail.delete("1.0", END)
+            self.detail.insert(
+                END,
+                "No hay leads cargados.\n\nUsa `Leer WhatsApp` para traer chats visibles reales, "
+                "o `Extractor afiliados` para seleccionar un grupo/chat autorizado y pasarlo al CRM.",
+            )
+            self.draft.delete("1.0", END)
 
     def on_select(self, _event: tk.Event) -> None:
         selected = self.tree.selection()
@@ -312,10 +312,33 @@ class ExplorerApp(tk.Tk):
         self.detail.insert(END, f"Lead: {lead.nombre}\nContacto/chat: {lead.telefono}\nEtapa: {lead.etapa}\nScore: {lead.score}\n\nUltimo mensaje:\n{lead.ultimo_mensaje}\n\nPendiente:\n{lead.pendiente}")
         self.draft.delete("1.0", END)
 
-    def load_demo(self) -> None:
-        self.leads = DEMO_LEADS.copy()
-        self.selected_index = 0
+    def refresh_from_whatsapp(self) -> None:
+        try:
+            result = self._run_bridge("list")
+        except RuntimeError as exc:
+            messagebox.showerror("No pude leer WhatsApp", str(exc))
+            return
+        chats = result.get("data", {}).get("chats", [])
+        real_leads: list[Lead] = []
+        for chat in chats:
+            title = chat.get("title") or "Chat visible"
+            text = " ".join((chat.get("text") or "").split())
+            if not title or title == "sin titulo":
+                continue
+            real_leads.append(
+                Lead(
+                    nombre=title,
+                    telefono=title,
+                    etapa="whatsapp",
+                    ultimo_mensaje=text[:240],
+                    pendiente="Revisar conversacion real",
+                    score=0,
+                )
+            )
+        self.leads = real_leads
+        self.selected_index = 0 if self.leads else None
         self.refresh_tree()
+        messagebox.showinfo("WhatsApp leido", f"Se cargaron {len(self.leads)} chat(s) visibles reales.")
 
     def import_csv(self) -> None:
         path = filedialog.askopenfilename(title="Importar contactos CSV", filetypes=[("CSV", "*.csv"), ("Todos", "*.*")])
