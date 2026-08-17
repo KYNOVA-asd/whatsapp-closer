@@ -1,5 +1,6 @@
 param(
   [string]$ProfileDir = "",
+  [int]$DebugPort = 9222,
   [switch]$NoLaunch
 )
 
@@ -43,6 +44,7 @@ $url = "https://web.whatsapp.com/"
 
 Write-Host "Edge: $edgePath"
 Write-Host "Perfil local: $resolvedProfile"
+Write-Host "Debug local: http://127.0.0.1:$DebugPort"
 Write-Host "URL: $url"
 
 if ($NoLaunch) {
@@ -53,6 +55,8 @@ if ($NoLaunch) {
 $args = @(
   "--user-data-dir=$resolvedProfile",
   "--profile-directory=Default",
+  "--remote-debugging-address=127.0.0.1",
+  "--remote-debugging-port=$DebugPort",
   "--no-first-run",
   "--new-window",
   $url

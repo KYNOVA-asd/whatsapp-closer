@@ -23,6 +23,7 @@ LOCAL_DIR = ROOT / ".local" / "whatsapp-web-explorer"
 EDGE_PROFILE = ROOT / ".local" / "edge-whatsapp-profile"
 LEADS_FILE = LOCAL_DIR / "leads.json"
 EDGE_SCRIPT = ROOT / "scripts" / "abrir_whatsapp_web_edge.ps1"
+BRIDGE_SCRIPT = ROOT / "scripts" / "whatsapp_web_bridge.py"
 
 
 @dataclass
@@ -180,6 +181,11 @@ class ExplorerApp(tk.Tk):
         ttk.Button(row, text="Marcar revisado", command=self.mark_reviewed).pack(side=LEFT, padx=(8, 0))
         ttk.Button(row, text="Simular envio controlado", command=self.simulate_send).pack(side=LEFT, padx=(8, 0))
 
+        bridge_row = ttk.Frame(card, style="Surface.TFrame")
+        bridge_row.pack(fill=X, pady=(10, 0))
+        ttk.Button(bridge_row, text="Leer chat activo", command=self.read_active_chat).pack(side=LEFT)
+        ttk.Button(bridge_row, text="Responder hola mundo", command=self.send_hello_world).pack(side=LEFT, padx=(8, 0))
+
         ttk.Label(card, text="Cola de envio demo", style="H2.TLabel").pack(anchor=W, pady=(18, 8))
         self.queue = tk.Listbox(card, height=6, bd=0, bg="#fffaf1", fg="#171814", highlightthickness=1, highlightcolor="#d8d2c4")
         self.queue.pack(fill=BOTH, expand=True)
@@ -315,6 +321,52 @@ class ExplorerApp(tk.Tk):
             return
         self.queue.insert(END, f"DEMO: {lead.telefono} -> {draft[:72]}")
         messagebox.showinfo("Envio demo", "No se envio nada real. Quedo registrado en la cola demo.")
+
+    def _run_bridge(self, *args: str) -> dict:
+        if not BRIDGE_SCRIPT.exists():
+            raise RuntimeError(f"No existe {BRIDGE_SCRIPT}")
+        completed = subprocess.run(
+            [sys.executable, str(BRIDGE_SCRIPT), *args],
+            cwd=str(ROOT),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        payload = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
+        try:
+            result = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(completed.stderr.strip() or completed.stdout.strip() or "El bridge no devolvio JSON.") from exc
+        if not result.get("ok"):
+            raise RuntimeError(result.get("message") or "El bridge fallo.")
+        return result
+
+    def read_active_chat(self) -> None:
+        try:
+            result = self._run_bridge("read")
+        except RuntimeError as exc:
+            messagebox.showerror("No pude leer WhatsApp Web", str(exc))
+            return
+        data = result.get("data", {})
+        last = data.get("last") or {}
+        self.queue.insert(END, f"LEIDO: {data.get('title') or 'chat activo'} -> {last.get('text') or 'sin mensajes'}")
+        self.detail.delete("1.0", END)
+        self.detail.insert(END, json.dumps(data, ensure_ascii=False, indent=2))
+
+    def send_hello_world(self) -> None:
+        if not messagebox.askyesno(
+            "Confirmar envio",
+            "Esto escribira 'hola mundo' en el chat ACTIVO de WhatsApp Web. ¿Seguro?",
+        ):
+            return
+        try:
+            result = self._run_bridge("send", "--text", "hola mundo")
+        except RuntimeError as exc:
+            messagebox.showerror("No pude responder", str(exc))
+            return
+        self.queue.insert(END, "ENVIADO REAL: hola mundo al chat activo")
+        self.detail.delete("1.0", END)
+        self.detail.insert(END, json.dumps(result.get("data", {}), ensure_ascii=False, indent=2))
 
     def save_leads(self) -> None:
         LOCAL_DIR.mkdir(parents=True, exist_ok=True)

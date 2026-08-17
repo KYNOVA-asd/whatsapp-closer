@@ -38,7 +38,7 @@ vinculado.
 
 La rama tambien trae un panel local de escritorio para explorar el producto antes de construir el
 scraper real. El panel abre WhatsApp Web con Edge, muestra una bandeja CRM demo, importa CSV,
-genera borradores y simula una cola de envio sin mandar mensajes reales.
+genera borradores y simula una cola de envio.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\abrir_panel_whatsapp_web.ps1
@@ -48,6 +48,30 @@ Tambien se puede abrir directo:
 
 ```powershell
 python scripts\whatsapp_web_explorer_app.py
+```
+
+### Prueba real controlada: chat activo
+
+El panel incluye dos botones experimentales:
+
+- **Leer chat activo:** lee solamente el chat que este abierto en WhatsApp Web.
+- **Responder hola mundo:** envia `hola mundo` solamente al chat activo y pide confirmacion antes.
+
+Para que funcionen, abre WhatsApp Web con el script de esta rama. Ese script levanta Edge con
+debug local en `127.0.0.1:9222`; el bridge no se conecta a tu navegador normal ni lee perfiles
+fuera de `.local/edge-whatsapp-profile/`.
+
+Si Edge ya estaba abierto antes de agregar el debug local, reinicia solo el perfil de esta rama:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\reiniciar_whatsapp_web_edge.ps1
+```
+
+Tambien puedes probarlo por terminal:
+
+```powershell
+python scripts\whatsapp_web_bridge.py read
+python scripts\whatsapp_web_bridge.py send --text "hola mundo"
 ```
 
 ### Monitor local de WhatsApp Web
