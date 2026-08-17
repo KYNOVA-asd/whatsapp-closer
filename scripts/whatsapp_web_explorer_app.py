@@ -56,6 +56,7 @@ class ExplorerApp(tk.Tk):
         self.extract_candidates_cache: list[dict] = []
         self.extract_participants_cache: list[dict] = []
         self.blast_messages: list[dict] = []
+        self.blast_message_source_indices: list[int] = []
         self.view_buttons: dict[str, ttk.Button] = {}
 
         self._configure_style()
@@ -193,65 +194,119 @@ class ExplorerApp(tk.Tk):
 
     def _build_blaster(self, parent: ttk.Frame) -> ttk.Frame:
         view = ttk.Frame(parent)
-        view.columnconfigure(0, weight=2)
-        view.columnconfigure(1, weight=3)
         view.rowconfigure(0, weight=1)
-        left = self._panel(view)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
-        ttk.Label(left, text="Blaster consentido", style="PanelTitle.TLabel").pack(anchor=W)
-        ttk.Label(left, text="Promos a lista propia, afiliados o clientes con relacion previa.", style="PanelMuted.TLabel").pack(anchor=W, pady=(2, 12))
+        view.columnconfigure(0, weight=1)
 
-        product_row = ttk.Frame(left, style="Panel.TFrame")
-        product_row.pack(fill=X, pady=(0, 10))
-        ttk.Label(product_row, text="Producto", style="PanelMuted.TLabel", width=10).pack(side=LEFT)
+        tabs = ttk.Notebook(view)
+        tabs.grid(row=0, column=0, sticky="nsew")
+
+        dashboard = self._panel(tabs)
+        dashboard.columnconfigure((0, 1, 2, 3), weight=1)
+        ttk.Label(dashboard, text="Dashboard blaster", style="PanelTitle.TLabel").grid(row=0, column=0, columnspan=4, sticky="w")
+        ttk.Label(dashboard, text="Flujo: importar numeros, elegir plantilla de campana y preparar cola con revision.", style="PanelMuted.TLabel").grid(row=1, column=0, columnspan=4, sticky="w", pady=(2, 14))
+        self.blast_contacts_var = tk.StringVar(value="0")
+        self.blast_ready_var = tk.StringVar(value="0")
+        self.blast_messages_var = tk.StringVar(value="0")
+        self.blast_queue_var = tk.StringVar(value="0")
+        for idx, (label, var) in enumerate([
+            ("Contactos", self.blast_contacts_var),
+            ("Con telefono", self.blast_ready_var),
+            ("Plantillas", self.blast_messages_var),
+            ("En cola", self.blast_queue_var),
+        ]):
+            box = ttk.Frame(dashboard, style="Band.TFrame", padding=12)
+            box.grid(row=2, column=idx, sticky="ew", padx=(0, 10))
+            ttk.Label(box, textvariable=var, style="Metric.TLabel").pack(anchor=W)
+            ttk.Label(box, text=label, style="MetricSmall.TLabel").pack(anchor=W)
+        steps = tk.Text(dashboard, height=10, wrap="word", bd=0, bg=PANEL, fg=INK, padx=12, pady=12)
+        steps.grid(row=3, column=0, columnspan=4, sticky="nsew", pady=(16, 0))
+        steps.insert(END, "1. Importa CSV en Preparar numeros.\n2. Crea o selecciona una plantilla tipo Campana.\n3. Prepara cola y revisa antes de enviar.\n4. Mensajes rapidos se guardan para respuestas manuales, no para blast masivo.")
+        steps.configure(state="disabled")
+
+        templates = self._panel(tabs)
+        templates.columnconfigure(0, weight=1)
+        templates.rowconfigure(6, weight=1)
+        ttk.Label(templates, text="Plantillas y mensajes rapidos", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(templates, text="Campana arma cola; Mensaje rapido sirve como texto reutilizable.", style="PanelMuted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 10))
+
+        product_row = ttk.Frame(templates, style="Panel.TFrame")
+        product_row.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        product_row.columnconfigure(1, weight=1)
+        ttk.Label(product_row, text="Producto", style="PanelMuted.TLabel", width=10).grid(row=0, column=0, sticky="w")
         self.blast_product_var = tk.StringVar(value="tu servicio")
-        ttk.Entry(product_row, textvariable=self.blast_product_var).pack(side=LEFT, fill=X, expand=True)
+        ttk.Entry(product_row, textvariable=self.blast_product_var).grid(row=0, column=1, sticky="ew")
 
-        ttk.Label(left, text="Mensajes guardados", style="PanelMuted.TLabel").pack(anchor=W, pady=(4, 6))
-        library = ttk.Frame(left, style="Panel.TFrame")
-        library.pack(fill=X, pady=(0, 10))
+        filters = ttk.Frame(templates, style="Panel.TFrame")
+        filters.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(filters, text="Ver", style="PanelMuted.TLabel").pack(side=LEFT, padx=(0, 6))
+        self.blast_message_filter_var = tk.StringVar(value="Todos")
+        filter_box = ttk.Combobox(filters, textvariable=self.blast_message_filter_var, values=["Todos", "Campanas", "Rapidos"], width=12, state="readonly")
+        filter_box.pack(side=LEFT, padx=(0, 12))
+        filter_box.bind("<<ComboboxSelected>>", lambda _event: self.refresh_blast_message_list())
+        ttk.Label(filters, text="Tipo", style="PanelMuted.TLabel").pack(side=LEFT, padx=(0, 6))
+        self.blast_message_type_var = tk.StringVar(value="Campana")
+        ttk.Combobox(filters, textvariable=self.blast_message_type_var, values=["Campana", "Rapido"], width=12, state="readonly").pack(side=LEFT)
+
+        library = ttk.Frame(templates, style="Panel.TFrame")
+        library.grid(row=4, column=0, sticky="ew", pady=(0, 10))
+        library.columnconfigure(0, weight=1)
         self.blast_message_list = tk.Listbox(library, height=5, bd=0, bg="#f4efe6", fg=INK, highlightthickness=1, highlightcolor=GOLD)
-        self.blast_message_list.pack(side=LEFT, fill=X, expand=True)
+        self.blast_message_list.grid(row=0, column=0, sticky="ew")
         self.blast_message_list.bind("<<ListboxSelect>>", self.on_blast_message_select)
         library_actions = ttk.Frame(library, style="Panel.TFrame")
-        library_actions.pack(side=LEFT, fill="y", padx=(8, 0))
+        library_actions.grid(row=0, column=1, sticky="ns", padx=(8, 0))
         ttk.Button(library_actions, text="Nuevo", command=self.add_blast_message).pack(fill=X, pady=(0, 6))
         ttk.Button(library_actions, text="Actualizar", command=self.update_blast_message).pack(fill=X, pady=(0, 6))
         ttk.Button(library_actions, text="Borrar", style="Danger.TButton", command=self.delete_blast_message).pack(fill=X)
 
-        name_row = ttk.Frame(left, style="Panel.TFrame")
-        name_row.pack(fill=X, pady=(0, 8))
-        ttk.Label(name_row, text="Nombre", style="PanelMuted.TLabel", width=10).pack(side=LEFT)
+        name_row = ttk.Frame(templates, style="Panel.TFrame")
+        name_row.grid(row=5, column=0, sticky="ew", pady=(0, 8))
+        name_row.columnconfigure(1, weight=1)
+        ttk.Label(name_row, text="Nombre", style="PanelMuted.TLabel", width=10).grid(row=0, column=0, sticky="w")
         self.blast_message_name_var = tk.StringVar(value="Promo principal")
-        ttk.Entry(name_row, textvariable=self.blast_message_name_var).pack(side=LEFT, fill=X, expand=True)
+        ttk.Entry(name_row, textvariable=self.blast_message_name_var).grid(row=0, column=1, sticky="ew")
 
-        self.blast_template = tk.Text(left, height=12, wrap="word", bd=0, bg="#f4efe6", fg=INK, padx=12, pady=12)
-        self.blast_template.pack(fill=X)
+        self.blast_template = tk.Text(templates, height=12, wrap="word", bd=0, bg="#f4efe6", fg=INK, padx=12, pady=12)
+        self.blast_template.grid(row=6, column=0, sticky="nsew")
         self.blast_template.insert(END, "Hola {nombre}, tenemos una promo de {producto}. Si quieres mas info responde SI.")
         self.blast_messages = [
             {
                 "name": "Promo principal",
+                "type": "campaign",
                 "template": self.blast_template.get("1.0", END).strip(),
             }
         ]
         self.refresh_blast_message_list()
         self.blast_message_list.selection_set(0)
 
-        actions = ttk.Frame(left, style="Panel.TFrame")
-        actions.pack(fill=X, pady=(12, 0))
-        ttk.Button(actions, text="Importar CSV", command=self.import_blast_csv).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(actions, text="Preparar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT, padx=(0, 8))
+        actions = ttk.Frame(templates, style="Panel.TFrame")
+        actions.grid(row=7, column=0, sticky="ew", pady=(12, 0))
         ttk.Button(actions, text="Guardar todo", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT)
-        ttk.Button(left, text="Simular ronda", style="Gold.TButton", command=self.simulate_blast_round).pack(anchor=W, pady=(8, 0))
-        right = self._panel(view)
-        right.grid(row=0, column=1, sticky="nsew")
-        right.rowconfigure(1, weight=1)
-        right.columnconfigure(0, weight=1)
-        ttk.Label(right, text="Cola y reglas", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        self.queue = tk.Listbox(right, bd=0, bg=PANEL, fg=INK, highlightthickness=1, highlightcolor=GOLD)
-        self.queue.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+
+        numbers = self._panel(tabs)
+        numbers.columnconfigure(0, weight=1)
+        numbers.rowconfigure(2, weight=1)
+        ttk.Label(numbers, text="Preparar numeros para mensajes", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(numbers, text="Importa CSV compatible, arma cola y simula ronda antes de enviar.", style="PanelMuted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 10))
+        queue_wrap = ttk.Frame(numbers, style="Panel.TFrame")
+        queue_wrap.grid(row=2, column=0, sticky="nsew")
+        queue_wrap.columnconfigure(0, weight=1)
+        queue_wrap.rowconfigure(0, weight=1)
+        self.queue = tk.Listbox(queue_wrap, bd=0, bg=PANEL, fg=INK, highlightthickness=1, highlightcolor=GOLD)
+        self.queue.grid(row=0, column=0, sticky="nsew")
         for rule in ["Regla: consentimiento o relacion previa.", "Regla: limite diario y pausas.", "Regla: baja/stop cancela seguimiento."]:
             self.queue.insert(END, rule)
+        numbers_actions = ttk.Frame(numbers, style="Panel.TFrame")
+        numbers_actions.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        ttk.Button(numbers_actions, text="Importar CSV", command=self.import_blast_csv).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Preparar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Simular ronda", style="Gold.TButton", command=self.simulate_blast_round).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Guardar todo", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT)
+
+        tabs.add(dashboard, text="Dashboard")
+        tabs.add(templates, text="Plantillas")
+        tabs.add(numbers, text="Preparar numeros")
+        self.update_blast_metrics()
         return view
 
     def _build_extractor(self, parent: ttk.Frame) -> ttk.Frame:
@@ -371,6 +426,7 @@ class ExplorerApp(tk.Tk):
             self.tree.insert("", END, iid=str(idx), values=(lead.nombre, lead.telefono, lead.etapa, lead.pendiente, lead.score))
         self.lead_count_var.set(str(len(self.leads)))
         self.pending_count_var.set(str(sum(1 for lead in self.leads if lead.pendiente and lead.pendiente.lower() != "revisado")))
+        self.update_blast_metrics()
         if self.leads:
             current = "0" if self.selected_index is None else str(min(self.selected_index, len(self.leads) - 1))
             self.tree.selection_set(current)
@@ -450,6 +506,7 @@ class ExplorerApp(tk.Tk):
         self.refresh_tree()
         self._write_leads_file()
         valid = sum(1 for lead in imported if self._has_blast_phone(lead))
+        self.update_blast_metrics()
         messagebox.showinfo("CSV blaster", f"Se cargaron {len(imported)} contacto(s). Con telefono para blaster: {valid}.")
 
     def _read_leads_csv(self, path: str) -> list[Lead]:
@@ -486,6 +543,9 @@ class ExplorerApp(tk.Tk):
         self.refresh_tree()
 
     def prepare_blast_campaign(self) -> None:
+        if self._active_blast_message_type() != "campaign":
+            messagebox.showwarning("No es campana", "Selecciona o guarda este mensaje como tipo Campana para preparar cola.")
+            return
         template = self.blast_template.get("1.0", END).strip()
         if not template:
             messagebox.showwarning("Sin plantilla", "Escribe una plantilla primero.")
@@ -502,6 +562,7 @@ class ExplorerApp(tk.Tk):
             self.queue.insert(END, f"REVISION: {lead.telefono} -> {msg[:130]}")
             added += 1
         self.save_blaster_state(show_message=False)
+        self.update_blast_metrics()
         messagebox.showinfo("Cola preparada", f"Listos para revision: {added}. Sin telefono: {skipped}.")
 
     def _has_blast_phone(self, lead: Lead) -> bool:
@@ -517,15 +578,30 @@ class ExplorerApp(tk.Tk):
             self.queue.delete(idx)
             self.queue.insert(idx, value.replace("REVISION", "SIMULADO", 1))
         self.save_blaster_state(show_message=False)
+        self.update_blast_metrics()
 
     def refresh_blast_message_list(self) -> None:
         self.blast_message_list.delete(0, END)
-        for message in self.blast_messages:
-            self.blast_message_list.insert(END, message.get("name", "Mensaje sin nombre"))
+        self.blast_message_source_indices = []
+        selected_filter = self.blast_message_filter_var.get() if hasattr(self, "blast_message_filter_var") else "Todos"
+        for idx, message in enumerate(self.blast_messages):
+            message_type = str(message.get("type") or "campaign")
+            if selected_filter == "Campanas" and message_type != "campaign":
+                continue
+            if selected_filter == "Rapidos" and message_type != "quick":
+                continue
+            self.blast_message_source_indices.append(idx)
+            self.blast_message_list.insert(END, f"{self._blast_type_label(message_type)}: {message.get('name', 'Mensaje sin nombre')}")
+        self.update_blast_metrics()
 
     def current_blast_message_index(self) -> int | None:
         selected = self.blast_message_list.curselection()
-        return int(selected[0]) if selected else None
+        if not selected:
+            return None
+        visible_index = int(selected[0])
+        if visible_index >= len(self.blast_message_source_indices):
+            return None
+        return self.blast_message_source_indices[visible_index]
 
     def on_blast_message_select(self, _event: tk.Event) -> None:
         index = self.current_blast_message_index()
@@ -533,6 +609,7 @@ class ExplorerApp(tk.Tk):
             return
         message = self.blast_messages[index]
         self.blast_message_name_var.set(str(message.get("name", "Mensaje sin nombre")))
+        self.blast_message_type_var.set(self._blast_type_label(str(message.get("type") or "campaign")))
         self.blast_template.delete("1.0", END)
         self.blast_template.insert(END, str(message.get("template", "")))
 
@@ -542,10 +619,10 @@ class ExplorerApp(tk.Tk):
         if not template:
             messagebox.showwarning("Sin mensaje", "Escribe el mensaje antes de guardarlo.")
             return
-        self.blast_messages.append({"name": name, "template": template})
+        self.blast_messages.append({"name": name, "type": self._blast_type_key(), "template": template})
+        self.blast_message_filter_var.set("Todos")
         self.refresh_blast_message_list()
-        self.blast_message_list.selection_clear(0, END)
-        self.blast_message_list.selection_set(len(self.blast_messages) - 1)
+        self.select_blast_message_by_source(len(self.blast_messages) - 1)
         self.save_blaster_state(show_message=False)
 
     def update_blast_message(self) -> None:
@@ -558,9 +635,10 @@ class ExplorerApp(tk.Tk):
         if not template:
             messagebox.showwarning("Sin mensaje", "Escribe el mensaje antes de actualizarlo.")
             return
-        self.blast_messages[index] = {"name": name, "template": template}
+        self.blast_messages[index] = {"name": name, "type": self._blast_type_key(), "template": template}
+        self.blast_message_filter_var.set("Todos")
         self.refresh_blast_message_list()
-        self.blast_message_list.selection_set(index)
+        self.select_blast_message_by_source(index)
         self.save_blaster_state(show_message=False)
 
     def sync_active_blast_message(self) -> None:
@@ -570,13 +648,39 @@ class ExplorerApp(tk.Tk):
         name = self.blast_message_name_var.get().strip() or "Mensaje sin nombre"
         index = self.current_blast_message_index()
         if index is None or index >= len(self.blast_messages):
-            self.blast_messages.append({"name": name, "template": template})
+            self.blast_messages.append({"name": name, "type": self._blast_type_key(), "template": template})
             self.refresh_blast_message_list()
-            self.blast_message_list.selection_set(len(self.blast_messages) - 1)
+            self.select_blast_message_by_source(len(self.blast_messages) - 1)
             return
-        self.blast_messages[index] = {"name": name, "template": template}
+        self.blast_messages[index] = {"name": name, "type": self._blast_type_key(), "template": template}
         self.refresh_blast_message_list()
-        self.blast_message_list.selection_set(index)
+        self.select_blast_message_by_source(index)
+
+    def _blast_type_key(self) -> str:
+        return "quick" if self.blast_message_type_var.get() == "Rapido" else "campaign"
+
+    def _blast_type_label(self, message_type: str) -> str:
+        return "Rapido" if message_type == "quick" else "Campana"
+
+    def _active_blast_message_type(self) -> str:
+        index = self.current_blast_message_index()
+        if index is not None and index < len(self.blast_messages):
+            return str(self.blast_messages[index].get("type") or self._blast_type_key())
+        return self._blast_type_key()
+
+    def select_blast_message_by_source(self, source_index: int) -> None:
+        self.blast_message_list.selection_clear(0, END)
+        if source_index in self.blast_message_source_indices:
+            visible_index = self.blast_message_source_indices.index(source_index)
+            self.blast_message_list.selection_set(visible_index)
+
+    def update_blast_metrics(self) -> None:
+        if not hasattr(self, "blast_contacts_var"):
+            return
+        self.blast_contacts_var.set(str(len(self.leads)))
+        self.blast_ready_var.set(str(sum(1 for lead in self.leads if self._has_blast_phone(lead))))
+        self.blast_messages_var.set(str(sum(1 for item in self.blast_messages if item.get("type", "campaign") == "campaign")))
+        self.blast_queue_var.set(str(self.queue.size() if hasattr(self, "queue") else 0))
 
     def delete_blast_message(self) -> None:
         index = self.current_blast_message_index()
@@ -589,7 +693,7 @@ class ExplorerApp(tk.Tk):
         self.refresh_blast_message_list()
         if self.blast_messages:
             next_index = min(index, len(self.blast_messages) - 1)
-            self.blast_message_list.selection_set(next_index)
+            self.select_blast_message_by_source(next_index)
             self.on_blast_message_select(tk.Event())
         else:
             self.blast_message_name_var.set("Mensaje nuevo")
@@ -962,6 +1066,7 @@ class ExplorerApp(tk.Tk):
             self.blast_messages = [
                 {
                     "name": str(item.get("name") or f"Mensaje {idx + 1}"),
+                    "type": str(item.get("type") or "campaign"),
                     "template": str(item.get("template") or ""),
                 }
                 for idx, item in enumerate(messages)
@@ -970,7 +1075,7 @@ class ExplorerApp(tk.Tk):
         else:
             template = str(data.get("template", "")).strip()
             if template:
-                self.blast_messages = [{"name": "Promo principal", "template": template}]
+                self.blast_messages = [{"name": "Promo principal", "type": "campaign", "template": template}]
         self.refresh_blast_message_list()
         if self.blast_messages:
             self.blast_message_list.selection_set(0)
@@ -980,6 +1085,7 @@ class ExplorerApp(tk.Tk):
             self.queue.delete(0, END)
             for item in items:
                 self.queue.insert(END, str(item))
+        self.update_blast_metrics()
 
     def save_blaster_state(self, *, show_message: bool = True) -> None:
         LOCAL_DIR.mkdir(parents=True, exist_ok=True)
@@ -992,6 +1098,7 @@ class ExplorerApp(tk.Tk):
             "queue": list(self.queue.get(0, END)),
         }
         BLASTER_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.update_blast_metrics()
         if show_message:
             messagebox.showinfo("Blaster guardado", f"Plantilla y cola guardadas en {BLASTER_FILE}")
 
