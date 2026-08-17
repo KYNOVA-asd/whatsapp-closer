@@ -53,6 +53,7 @@ class ExplorerApp(tk.Tk):
         self.selected_index: int | None = None
         self.visible_chats: list[dict] = []
         self.extract_candidates_cache: list[dict] = []
+        self.extract_participants_cache: list[dict] = []
         self.view_buttons: dict[str, ttk.Button] = {}
 
         self._configure_style()
@@ -252,8 +253,8 @@ class ExplorerApp(tk.Tk):
         for label, var in [
             ("Archivo", self.extract_file_var),
             ("Candidatos detectados", self.extract_candidates_var),
-            ("Unicos validos", self.extract_unique_var),
-            ("Telefonos", self.extract_phones_var),
+            ("Numeros validos", self.extract_unique_var),
+            ("Remitentes", self.extract_phones_var),
         ]:
             box = ttk.Frame(metrics, style="Band.TFrame", padding=10)
             box.pack(side=LEFT, fill=X, expand=True, padx=(0, 8))
@@ -451,14 +452,18 @@ class ExplorerApp(tk.Tk):
             return
         text = Path(path).read_text(encoding="utf-8-sig", errors="replace")
         candidates = self._extract_candidates(text)
+        participants = self._participants_from_export(text)
         self.extract_candidates_cache = candidates
+        self.extract_participants_cache = participants
         numbers = self._numbers_from_candidates(candidates)
-        self.visible_chats = numbers
-        self._render_extractor_rows(numbers or candidates, source="txt" if numbers else "candidates")
+        review_rows = numbers or participants or candidates
+        review_source = "txt" if numbers else "participants" if participants else "candidates"
+        self.visible_chats = numbers or participants
+        self._render_extractor_rows(review_rows, source=review_source)
         self.extract_file_var.set(Path(path).name[:18])
         self.extract_candidates_var.set(str(len(candidates)))
         self.extract_unique_var.set(str(len(numbers)))
-        self.extract_phones_var.set(str(len(numbers)))
+        self.extract_phones_var.set(str(len(participants)))
         self.extract_detail.delete("1.0", END)
         self.extract_detail.insert(
             END,
@@ -470,10 +475,12 @@ class ExplorerApp(tk.Tk):
         if not self.extract_candidates_cache:
             return
         numbers = self._numbers_from_candidates(self.extract_candidates_cache)
-        self.visible_chats = numbers
-        self._render_extractor_rows(numbers or self.extract_candidates_cache, source="txt" if numbers else "candidates")
+        review_rows = numbers or self.extract_participants_cache or self.extract_candidates_cache
+        review_source = "txt" if numbers else "participants" if self.extract_participants_cache else "candidates"
+        self.visible_chats = numbers or self.extract_participants_cache
+        self._render_extractor_rows(review_rows, source=review_source)
         self.extract_unique_var.set(str(len(numbers)))
-        self.extract_phones_var.set(str(len(numbers)))
+        self.extract_phones_var.set(str(len(self.extract_participants_cache)))
 
     def _render_extractor_rows(self, rows: list[dict], *, source: str) -> None:
         self.visible_chat_list.delete(*self.visible_chat_list.get_children())
@@ -495,6 +502,12 @@ class ExplorerApp(tk.Tk):
                 sender = item.get("sender", "")
                 context = item.get("raw", "")
                 reason = item.get("reason", "")
+            elif source == "participants":
+                title = str(idx + 1)
+                phone = item.get("phone", "")
+                sender = item.get("sender", "")
+                context = item.get("last_text", "")
+                reason = f"{item.get('messages', 0)} mensaje(s)"
             else:
                 title = item.get("title") or "sin titulo"
                 phone = item.get("phone") or ""
@@ -541,6 +554,43 @@ class ExplorerApp(tk.Tk):
                         }
                     )
         return candidates
+
+    def _participants_from_export(self, text: str) -> list[dict]:
+        participants: dict[str, dict] = {}
+        line_pattern = re.compile(
+            r"^(\d{1,2}/\d{1,2}/\d{2,4}),\s+(.+?)\s+-\s+([^:\n]+):\s*(.*)$"
+        )
+        for line_no, line in enumerate((text or "").splitlines(), start=1):
+            match = line_pattern.match(line.lstrip("\ufeff\u200e").strip())
+            if not match:
+                continue
+            date, time_text, sender, body = match.groups()
+            sender = sender.strip().lstrip("\u200e").strip()
+            if not sender:
+                continue
+            phone = ""
+            for raw in re.findall(r"\+?\d[\d\s().-]{6,}\d", sender):
+                phone = self._normalize_phone(raw) or ""
+                if phone:
+                    break
+            item = participants.setdefault(
+                sender,
+                {
+                    "sender": sender,
+                    "phone": phone,
+                    "line": line_no,
+                    "at": f"{date} {time_text}",
+                    "messages": 0,
+                    "last_text": "",
+                    "source": "participant",
+                },
+            )
+            item["messages"] += 1
+            item["last_text"] = " ".join(body.split())[:220]
+            item["at"] = f"{date} {time_text}"
+            if phone and not item.get("phone"):
+                item["phone"] = phone
+        return list(participants.values())
 
     def _candidate_reason(self, raw: str, context: str, sender: str, field: str) -> str:
         digits = re.sub(r"\D", "", raw)
@@ -642,6 +692,7 @@ class ExplorerApp(tk.Tk):
     def clear_extractor(self) -> None:
         self.visible_chats = []
         self.extract_candidates_cache = []
+        self.extract_participants_cache = []
         self.visible_chat_list.delete(*self.visible_chat_list.get_children())
         self.extract_file_var.set("-")
         self.extract_candidates_var.set("0")
