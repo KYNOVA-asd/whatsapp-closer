@@ -27,7 +27,7 @@ class BridgeResult:
     data: dict[str, Any]
 
     def print(self) -> int:
-        print(json.dumps({"ok": self.ok, "message": self.message, "data": self.data}, ensure_ascii=False))
+        print(json.dumps({"ok": self.ok, "message": self.message, "data": self.data}, ensure_ascii=True))
         return 0 if self.ok else 1
 
 
@@ -69,17 +69,24 @@ def _read_active_chat(page) -> dict[str, Any]:
             document.querySelector('header [dir="auto"][title]') ||
             document.querySelector('header [dir="auto"]');
           const title = titleNode ? (titleNode.getAttribute('title') || titleNode.textContent || '').trim() : '';
-          const nodes = [...document.querySelectorAll('div.message-in, div.message-out')];
+          const nodes = [
+            ...document.querySelectorAll('div.message-in, div.message-out, [data-pre-plain-text]')
+          ];
           const messages = nodes.map((node) => {
             const text = [...node.querySelectorAll('span.selectable-text, div.copyable-text span')]
               .map((span) => span.innerText || span.textContent || '')
               .join('\\n')
               .trim();
             const meta = node.querySelector('[data-pre-plain-text]');
+            const ownMeta = node.getAttribute('data-pre-plain-text');
+            const parent = node.closest('div.message-in, div.message-out');
             return {
-              direction: node.classList.contains('message-in') ? 'in' : 'out',
+              direction:
+                node.classList.contains('message-in') || parent?.classList.contains('message-in') ? 'in' :
+                node.classList.contains('message-out') || parent?.classList.contains('message-out') ? 'out' :
+                'unknown',
               text,
-              meta: meta ? meta.getAttribute('data-pre-plain-text') : ''
+              meta: ownMeta || (meta ? meta.getAttribute('data-pre-plain-text') : '')
             };
           }).filter((item) => item.text);
           return {
@@ -92,6 +99,72 @@ def _read_active_chat(page) -> dict[str, Any]:
         }
         """
     )
+
+
+def _list_visible_chats(page) -> list[dict[str, Any]]:
+    return page.evaluate(
+        """
+        () => {
+          const root = document.querySelector('#pane-side') || document.body;
+          const candidates = [
+            ...root.querySelectorAll('[role="listitem"], [role="row"], div[tabindex]')
+          ];
+          const seen = new Set();
+          return candidates.map((node, index) => {
+            const titleNode = node.querySelector('span[title]');
+            const title = titleNode ? titleNode.getAttribute('title') : '';
+            const text = (node.innerText || node.textContent || '').trim();
+            const key = `${title}|${text}`;
+            if ((!title && !text) || seen.has(key)) return null;
+            seen.add(key);
+            const unread =
+              Boolean(node.querySelector('[aria-label*="no leído"], [aria-label*="unread"]')) ||
+              /\\n\\d+\\s*$/.test(text);
+            return { index, title, text: text.slice(0, 500), unread };
+          }).filter(Boolean).slice(0, 40);
+        }
+        """
+    )
+
+
+def _open_chat(page, query: str) -> dict[str, Any]:
+    query = query.strip()
+    if not query:
+        raise RuntimeError("Pasa el nombre del chat con --chat.")
+    result = page.evaluate(
+        """
+        (query) => {
+          const normalize = (value) => (value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\\u0300-\\u036f]/g, '')
+            .trim();
+          const wanted = normalize(query);
+          const root = document.querySelector('#pane-side') || document.body;
+          const rows = [...root.querySelectorAll('[role="listitem"], [role="row"], div[tabindex]')];
+          const mapped = rows.map((node) => {
+            const titleNode = node.querySelector('span[title]');
+            const title = titleNode?.getAttribute('title') || '';
+            const text = (node.innerText || node.textContent || '').trim();
+            return { node, titleNode, title, text, titleNorm: normalize(title), textNorm: normalize(text) };
+          });
+          const exactTitle = mapped.find((item) => item.titleNorm === wanted);
+          const partialTitle = mapped.find((item) => item.titleNorm && item.titleNorm.includes(wanted));
+          const partialText = mapped.find((item) => item.textNorm.includes(wanted));
+          const match = exactTitle || partialTitle || partialText;
+          if (match) {
+            (match.titleNode || match.node).click();
+            return { clicked: true, title: match.title, text: match.text.slice(0, 500) };
+          }
+          return { clicked: false, title: '', text: '' };
+        }
+        """,
+        query,
+    )
+    if not result.get("clicked"):
+        raise RuntimeError(f"No encontre un chat visible que coincida con `{query}`.")
+    page.wait_for_timeout(900)
+    return result
 
 
 def _send_to_active_chat(page, text: str) -> None:
@@ -130,15 +203,50 @@ def command_read() -> BridgeResult:
             pw.stop()
 
 
-def command_send(text: str) -> BridgeResult:
+def command_list() -> BridgeResult:
     pw = browser = None
     try:
         pw, browser, page = _connect_page()
+        return BridgeResult(True, "Chats visibles leidos.", {"chats": _list_visible_chats(page)})
+    except Exception as exc:  # noqa: BLE001
+        return BridgeResult(False, str(exc), {})
+    finally:
+        if browser:
+            browser.close()
+        if pw:
+            pw.stop()
+
+
+def command_open(chat: str) -> BridgeResult:
+    pw = browser = None
+    try:
+        pw, browser, page = _connect_page()
+        opened = _open_chat(page, chat)
+        active = _read_active_chat(page)
+        return BridgeResult(True, "Chat abierto.", {"opened": opened, "active": active})
+    except Exception as exc:  # noqa: BLE001
+        return BridgeResult(False, str(exc), {})
+    finally:
+        if browser:
+            browser.close()
+        if pw:
+            pw.stop()
+
+
+def command_send(text: str, chat: str | None = None) -> BridgeResult:
+    pw = browser = None
+    try:
+        pw, browser, page = _connect_page()
+        opened = _open_chat(page, chat) if chat else None
         before = _read_active_chat(page)
         _send_to_active_chat(page, text)
         page.wait_for_timeout(600)
         after = _read_active_chat(page)
-        return BridgeResult(True, "Mensaje demo enviado al chat activo.", {"before": before.get("last"), "after": after.get("last")})
+        return BridgeResult(
+            True,
+            "Mensaje demo enviado.",
+            {"opened": opened, "before": before.get("last"), "after": after.get("last")},
+        )
     except Exception as exc:  # noqa: BLE001
         return BridgeResult(False, str(exc), {})
     finally:
@@ -151,15 +259,23 @@ def command_send(text: str) -> BridgeResult:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Bridge experimental para WhatsApp Web.")
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("list", help="Lista chats visibles en la bandeja.")
     sub.add_parser("read", help="Lee el chat activo visible.")
+    open_cmd = sub.add_parser("open", help="Abre un chat visible por nombre.")
+    open_cmd.add_argument("--chat", required=True, help="Nombre o texto visible del chat.")
     send = sub.add_parser("send", help="Envia un mensaje explicito al chat activo.")
     send.add_argument("--text", default="hola mundo", help="Texto a enviar.")
+    send.add_argument("--chat", default=None, help="Opcional: abre este chat visible antes de enviar.")
     args = parser.parse_args(argv)
 
+    if args.command == "list":
+        return command_list().print()
     if args.command == "read":
         return command_read().print()
+    if args.command == "open":
+        return command_open(args.chat).print()
     if args.command == "send":
-        return command_send(args.text).print()
+        return command_send(args.text, args.chat).print()
     return 2
 
 
