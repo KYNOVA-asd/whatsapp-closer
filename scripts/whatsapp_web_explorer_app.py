@@ -51,7 +51,7 @@ DEMO_LEADS = [
 class ExplorerApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("WhatsApp Web Explorer")
+        self.title("WhatsApp Web Explorer · sales workspace")
         self.geometry("1320x820")
         self.minsize(1120, 700)
         self.configure(bg=BG)
@@ -100,12 +100,13 @@ class ExplorerApp(tk.Tk):
         ttk.Label(title_area, text="WhatsApp Web Explorer", style="Title.TLabel").pack(anchor=W)
         ttk.Label(
             title_area,
-            text="Panel local de ventas: vendedor real, blaster consentido, extractor de afiliados y configuracion.",
+            text="Sales workspace v2 · vendedor real, blaster consentido, extractor de afiliados y configuracion.",
             style="Muted.TLabel",
         ).pack(anchor=W, pady=(3, 0))
         actions = ttk.Frame(header)
         actions.pack(side=tk.RIGHT)
         ttk.Button(actions, text="Abrir WhatsApp Web", style="Accent.TButton", command=self.open_edge).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(actions, text="Refrescar demo", command=self.load_demo).pack(side=LEFT, padx=(0, 8))
         ttk.Button(actions, text="Guardar", style="Gold.TButton", command=self.save_leads).pack(side=LEFT)
 
         nav = ttk.Frame(root)
