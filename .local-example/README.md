@@ -23,3 +23,6 @@ powershell -ExecutionPolicy Bypass -File scripts\abrir_whatsapp_web_edge.ps1
 ```
 
 Para probar la importacion desde la interfaz Python, usa `contactos-demo.csv`.
+
+`config.example.json` muestra los valores locales esperados para limites, pausas, opt-out y LLM
+local.

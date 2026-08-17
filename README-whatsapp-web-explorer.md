@@ -17,6 +17,18 @@ el flujo y validar si sirve para el negocio.
 
 ## Lo que se puede construir en esta rama
 
+## Modulos del panel de ventas
+
+La demo de escritorio esta organizada como una suite con cuatro modulos:
+
+- **Vendedor:** lee el chat activo, genera borradores, responde pruebas controladas y mantiene el
+  seguimiento del lead.
+- **Blaster:** prepara mensajes promocionales para listas propias o importadas con consentimiento.
+  No envia en automatico; primero arma cola de revision, aplica limites y respeta opt-out.
+- **Extractor:** lista chats visibles y permite pasarlos al CRM como `por-confirmar`. No esta
+  pensado para recolectar numeros frios de grupos ni para spam.
+- **Config:** guarda limites, pausas, palabras de baja y endpoint de LLM local en `.local/`.
+
 ## Iniciar WhatsApp Web con Edge local
 
 Para probar con tu propia sesion sin mezclarla con tu navegador normal, esta rama usa un perfil

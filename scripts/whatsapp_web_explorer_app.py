@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOCAL_DIR = ROOT / ".local" / "whatsapp-web-explorer"
 EDGE_PROFILE = ROOT / ".local" / "edge-whatsapp-profile"
 LEADS_FILE = LOCAL_DIR / "leads.json"
+CONFIG_FILE = LOCAL_DIR / "config.json"
 EDGE_SCRIPT = ROOT / "scripts" / "abrir_whatsapp_web_edge.ps1"
 BRIDGE_SCRIPT = ROOT / "scripts" / "whatsapp_web_bridge.py"
 
@@ -91,6 +92,8 @@ class ExplorerApp(tk.Tk):
         style.configure("Accent.TButton", background="#286846", foreground="#ffffff", padding=(14, 8))
         style.map("Accent.TButton", background=[("active", "#1f5739")])
         style.configure("TButton", padding=(12, 7))
+        style.configure("TNotebook", background="#f5f1e8", borderwidth=0)
+        style.configure("TNotebook.Tab", padding=(12, 8))
         style.configure("Treeview", rowheight=34, fieldbackground="#fffaf1", background="#fffaf1", borderwidth=0)
         style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
 
@@ -155,8 +158,14 @@ class ExplorerApp(tk.Tk):
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
 
     def _build_detail(self, parent: ttk.Frame) -> None:
-        card = ttk.Frame(parent, style="Surface.TFrame", padding=14)
-        card.pack(fill=BOTH, expand=True, padx=(14, 0))
+        notebook = ttk.Notebook(parent)
+        notebook.pack(fill=BOTH, expand=True, padx=(14, 0))
+
+        vendedor_tab = ttk.Frame(notebook)
+        notebook.add(vendedor_tab, text="Vendedor")
+
+        card = ttk.Frame(vendedor_tab, style="Surface.TFrame", padding=14)
+        card.pack(fill=BOTH, expand=True)
 
         ttk.Label(card, text="Panel del vendedor IA", style="H2.TLabel").pack(anchor=W)
         ttk.Label(
@@ -190,6 +199,102 @@ class ExplorerApp(tk.Tk):
         self.queue = tk.Listbox(card, height=6, bd=0, bg="#fffaf1", fg="#171814", highlightthickness=1, highlightcolor="#d8d2c4")
         self.queue.pack(fill=BOTH, expand=True)
 
+        self._build_blaster_tab(notebook)
+        self._build_extractor_tab(notebook)
+        self._build_config_tab(notebook)
+
+    def _build_blaster_tab(self, notebook: ttk.Notebook) -> None:
+        tab = ttk.Frame(notebook)
+        notebook.add(tab, text="Blaster")
+        card = ttk.Frame(tab, style="Surface.TFrame", padding=14)
+        card.pack(fill=BOTH, expand=True)
+
+        ttk.Label(card, text="Blaster consentido", style="H2.TLabel").pack(anchor=W)
+        ttk.Label(
+            card,
+            text="Prepara mensajes promocionales para contactos propios/importados. Todo queda en cola y requiere revision.",
+            style="Small.TLabel",
+        ).pack(anchor=W, pady=(2, 12))
+
+        self.blast_template = tk.Text(card, height=7, wrap="word", bd=0, bg="#f8f3ea", fg="#171814", padx=10, pady=10)
+        self.blast_template.pack(fill=X)
+        self.blast_template.insert(
+            END,
+            "Hola {nombre}, te comparto una promo de {producto}. Si quieres mas info, responde SI y te atiendo por aqui.",
+        )
+
+        row = ttk.Frame(card, style="Surface.TFrame")
+        row.pack(fill=X, pady=(10, 0))
+        ttk.Button(row, text="Preparar desde CRM", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT)
+        ttk.Button(row, text="Simular ronda", command=self.simulate_blast_round).pack(side=LEFT, padx=(8, 0))
+
+        ttk.Label(card, text="Reglas", style="H2.TLabel").pack(anchor=W, pady=(18, 8))
+        self.blast_rules = tk.Listbox(card, height=5, bd=0, bg="#fffaf1", fg="#171814", highlightthickness=1, highlightcolor="#d8d2c4")
+        self.blast_rules.pack(fill=X)
+        for rule in [
+            "Solo contactos con consentimiento o relacion previa.",
+            "Personalizar con variables; evitar mensajes identicos en bloque.",
+            "Pausas entre envios y limite diario configurable.",
+            "Respetar BAJA / STOP / no me escribas.",
+        ]:
+            self.blast_rules.insert(END, rule)
+
+    def _build_extractor_tab(self, notebook: ttk.Notebook) -> None:
+        tab = ttk.Frame(notebook)
+        notebook.add(tab, text="Extractor")
+        card = ttk.Frame(tab, style="Surface.TFrame", padding=14)
+        card.pack(fill=BOTH, expand=True)
+
+        ttk.Label(card, text="Extractor opt-in", style="H2.TLabel").pack(anchor=W)
+        ttk.Label(
+            card,
+            text="Lee chats visibles y permite agregarlos como leads por confirmar. No recolecta numeros frios de grupos.",
+            style="Small.TLabel",
+        ).pack(anchor=W, pady=(2, 12))
+
+        row = ttk.Frame(card, style="Surface.TFrame")
+        row.pack(fill=X, pady=(0, 10))
+        ttk.Button(row, text="Listar chats visibles", style="Accent.TButton", command=self.load_visible_chats).pack(side=LEFT)
+        ttk.Button(row, text="Agregar seleccionado a CRM", command=self.add_selected_visible_chat).pack(side=LEFT, padx=(8, 0))
+
+        self.visible_chats: list[dict] = []
+        self.visible_chat_list = tk.Listbox(card, height=14, bd=0, bg="#f8f3ea", fg="#171814", highlightthickness=1, highlightcolor="#d8d2c4")
+        self.visible_chat_list.pack(fill=BOTH, expand=True)
+
+    def _build_config_tab(self, notebook: ttk.Notebook) -> None:
+        tab = ttk.Frame(notebook)
+        notebook.add(tab, text="Config")
+        card = ttk.Frame(tab, style="Surface.TFrame", padding=14)
+        card.pack(fill=BOTH, expand=True)
+
+        ttk.Label(card, text="Configuracion local", style="H2.TLabel").pack(anchor=W)
+        ttk.Label(
+            card,
+            text="Estos valores se guardan en .local/ y sirven para el prototipo.",
+            style="Small.TLabel",
+        ).pack(anchor=W, pady=(2, 12))
+
+        self.require_review_var = tk.BooleanVar(value=True)
+        self.daily_limit_var = tk.StringVar(value="40")
+        self.delay_min_var = tk.StringVar(value="35")
+        self.delay_max_var = tk.StringVar(value="120")
+        self.opt_out_var = tk.StringVar(value="BAJA, STOP, no me escribas")
+        self.local_llm_var = tk.StringVar(value="http://127.0.0.1:11434")
+
+        self._config_row(card, "Limite diario", self.daily_limit_var)
+        self._config_row(card, "Pausa min seg", self.delay_min_var)
+        self._config_row(card, "Pausa max seg", self.delay_max_var)
+        self._config_row(card, "Palabras opt-out", self.opt_out_var)
+        self._config_row(card, "LLM local", self.local_llm_var)
+        ttk.Checkbutton(card, text="Requerir aprobacion antes de enviar", variable=self.require_review_var).pack(anchor=W, pady=(8, 12))
+        ttk.Button(card, text="Guardar config", style="Accent.TButton", command=self.save_config).pack(anchor=W)
+
+    def _config_row(self, parent: ttk.Frame, label: str, var: tk.StringVar) -> None:
+        row = ttk.Frame(parent, style="Surface.TFrame")
+        row.pack(fill=X, pady=(0, 8))
+        ttk.Label(row, text=label, style="Small.TLabel", width=18).pack(side=LEFT)
+        ttk.Entry(row, textvariable=var).pack(side=LEFT, fill=X, expand=True)
+
     def _load_leads(self) -> None:
         LOCAL_DIR.mkdir(parents=True, exist_ok=True)
         self.status_var.set(
@@ -204,6 +309,7 @@ class ExplorerApp(tk.Tk):
         if not self.leads:
             self.leads = DEMO_LEADS.copy()
         self.refresh_tree()
+        self.load_config()
 
     def refresh_tree(self) -> None:
         self.tree.delete(*self.tree.get_children())
@@ -321,6 +427,97 @@ class ExplorerApp(tk.Tk):
             return
         self.queue.insert(END, f"DEMO: {lead.telefono} -> {draft[:72]}")
         messagebox.showinfo("Envio demo", "No se envio nada real. Quedo registrado en la cola demo.")
+
+    def prepare_blast_campaign(self) -> None:
+        template = self.blast_template.get("1.0", END).strip()
+        if not template:
+            messagebox.showwarning("Sin plantilla", "Escribe una plantilla promocional primero.")
+            return
+        self.queue.delete(0, END)
+        for lead in self.leads:
+            message = template.format(
+                nombre=lead.nombre,
+                telefono=lead.telefono,
+                producto="tu servicio",
+                etapa=lead.etapa,
+            )
+            self.queue.insert(END, f"BLASTER REVISION: {lead.telefono} -> {message[:86]}")
+        messagebox.showinfo("Campana preparada", f"Se preparo una cola demo con {len(self.leads)} mensaje(s).")
+
+    def simulate_blast_round(self) -> None:
+        if self.queue.size() == 0:
+            messagebox.showwarning("Cola vacia", "Prepara la campana antes de simular.")
+            return
+        limit = min(3, self.queue.size())
+        for idx in range(limit):
+            current = self.queue.get(idx)
+            self.queue.delete(idx)
+            self.queue.insert(idx, current.replace("BLASTER REVISION", "BLASTER SIMULADO", 1))
+        messagebox.showinfo("Ronda demo", f"Se simularon {limit} envio(s). No se mando nada real.")
+
+    def load_visible_chats(self) -> None:
+        try:
+            result = self._run_bridge("list")
+        except RuntimeError as exc:
+            messagebox.showerror("No pude listar chats", str(exc))
+            return
+        chats = result.get("data", {}).get("chats", [])
+        self.visible_chats = chats
+        self.visible_chat_list.delete(0, END)
+        for chat in chats:
+            title = chat.get("title") or "sin titulo"
+            text = " ".join((chat.get("text") or "").split())
+            unread = " · no leido" if chat.get("unread") else ""
+            self.visible_chat_list.insert(END, f"{title}{unread} · {text[:92]}")
+        messagebox.showinfo("Chats visibles", f"Se leyeron {len(chats)} chat(s) visibles.")
+
+    def add_selected_visible_chat(self) -> None:
+        selection = self.visible_chat_list.curselection()
+        if not selection:
+            messagebox.showwarning("Sin chat", "Selecciona un chat visible primero.")
+            return
+        chat = self.visible_chats[selection[0]]
+        title = chat.get("title") or "Chat visible"
+        text = " ".join((chat.get("text") or "").split())
+        self.leads.append(
+            Lead(
+                title,
+                title,
+                "por-confirmar",
+                text[:240],
+                "Confirmar consentimiento antes de contactar",
+                0,
+            )
+        )
+        self.refresh_tree()
+        messagebox.showinfo("Agregado", f"`{title}` quedo en CRM como lead por confirmar.")
+
+    def load_config(self) -> None:
+        if not CONFIG_FILE.exists():
+            return
+        try:
+            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return
+        self.daily_limit_var.set(str(data.get("daily_limit", self.daily_limit_var.get())))
+        self.delay_min_var.set(str(data.get("delay_min_seconds", self.delay_min_var.get())))
+        self.delay_max_var.set(str(data.get("delay_max_seconds", self.delay_max_var.get())))
+        self.opt_out_var.set(str(data.get("opt_out_words", self.opt_out_var.get())))
+        self.local_llm_var.set(str(data.get("local_llm_url", self.local_llm_var.get())))
+        self.require_review_var.set(bool(data.get("require_review", True)))
+
+    def save_config(self) -> None:
+        LOCAL_DIR.mkdir(parents=True, exist_ok=True)
+        config = {
+            "daily_limit": self.daily_limit_var.get(),
+            "delay_min_seconds": self.delay_min_var.get(),
+            "delay_max_seconds": self.delay_max_var.get(),
+            "opt_out_words": self.opt_out_var.get(),
+            "local_llm_url": self.local_llm_var.get(),
+            "require_review": self.require_review_var.get(),
+        }
+        CONFIG_FILE.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+        messagebox.showinfo("Config guardada", f"Config local guardada en {CONFIG_FILE}")
 
     def _run_bridge(self, *args: str) -> dict:
         if not BRIDGE_SCRIPT.exists():

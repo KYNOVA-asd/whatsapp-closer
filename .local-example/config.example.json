@@ -1,0 +1,8 @@
+{
+  "daily_limit": 40,
+  "delay_min_seconds": 35,
+  "delay_max_seconds": 120,
+  "opt_out_words": "BAJA, STOP, no me escribas",
+  "local_llm_url": "http://127.0.0.1:11434",
+  "require_review": true
+}
