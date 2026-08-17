@@ -1,4 +1,4 @@
-"""Desktop sales panel demo for the whatsapp-web-explorer branch."""
+"""Desktop sales panel for the whatsapp-web-explorer branch."""
 
 from __future__ import annotations
 
@@ -58,6 +58,10 @@ class ExplorerApp(tk.Tk):
         self.extract_participants_cache: list[dict] = []
         self.blast_messages: list[dict] = []
         self.blast_message_source_indices: list[int] = []
+        self.blast_send_running = False
+        self.blast_batch_total = 0
+        self.blast_batch_done = 0
+        self.blast_batch_errors = 0
         self.view_buttons: dict[str, ttk.Button] = {}
         self.require_review_var = tk.BooleanVar(value=True)
         self.daily_limit_var = tk.StringVar(value="40")
@@ -326,7 +330,7 @@ class ExplorerApp(tk.Tk):
             self.queue.heading(col, text=label)
             self.queue.column(col, width=width, anchor=W)
         self.queue.tag_configure("REVISION", background="#fffdf5")
-        self.queue.tag_configure("SIMULADO", background="#f4efe6")
+        self.queue.tag_configure("PRUEBA", background="#f4efe6")
         self.queue.tag_configure("ESPERA", background="#f2edc5")
         self.queue.tag_configure("ENVIADO", background="#e7eee8")
         self.queue.tag_configure("ERROR", background="#f3d8d8")
@@ -340,10 +344,13 @@ class ExplorerApp(tk.Tk):
         ttk.Button(numbers_actions, text="Preparar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Actualizar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Limpiar cola", style="Danger.TButton", command=self.clear_blast_queue).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(numbers_actions, text="Simular ronda", style="Gold.TButton", command=self.simulate_blast_round).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(numbers_actions, text="Enviar seleccionado", style="Accent.TButton", command=self.send_selected_blast).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(numbers_actions, text="Enviar siguiente", style="Accent.TButton", command=self.send_next_blast).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(numbers_actions, text="Enviar bloque", style="Accent.TButton", command=self.send_blast_batch).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Vista previa", style="Gold.TButton", command=self.preview_blast_round).pack(side=LEFT, padx=(0, 8))
+        self.send_selected_btn = ttk.Button(numbers_actions, text="Enviar seleccionado", style="Accent.TButton", command=self.send_selected_blast)
+        self.send_selected_btn.pack(side=LEFT, padx=(0, 8))
+        self.send_next_btn = ttk.Button(numbers_actions, text="Enviar siguiente", style="Accent.TButton", command=self.send_next_blast)
+        self.send_next_btn.pack(side=LEFT, padx=(0, 8))
+        self.send_batch_btn = ttk.Button(numbers_actions, text="Enviar bloque", style="Accent.TButton", command=self.send_blast_batch)
+        self.send_batch_btn.pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Guardar todo", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT)
 
         tabs.add(dashboard, text="Dashboard")
@@ -607,16 +614,16 @@ class ExplorerApp(tk.Tk):
         digits = re.sub(r"\D", "", lead.telefono or "")
         return len(digits) >= 10
 
-    def simulate_blast_round(self) -> None:
+    def preview_blast_round(self) -> None:
         if self._queue_count() == 0:
             messagebox.showwarning("Cola vacia", "Prepara una cola primero.")
             return
+        lines: list[str] = []
         for idx in range(min(3, self._queue_count())):
             status, phone, text = self._queue_get(idx)
             if status == "REVISION":
-                self._queue_set(idx, "SIMULADO", phone, text)
-        self.save_blaster_state(show_message=False)
-        self.update_blast_metrics()
+                lines.append(f"{idx + 1}. {phone}: {text}")
+        messagebox.showinfo("Vista previa", "\n\n".join(lines) if lines else "No hay mensajes en revision para previsualizar.")
 
     def clear_blast_queue(self) -> None:
         if self._queue_count() == 0:
@@ -630,6 +637,9 @@ class ExplorerApp(tk.Tk):
         self.update_blast_send_status("Cola limpia")
 
     def send_selected_blast(self) -> None:
+        if self.blast_send_running:
+            messagebox.showinfo("Envio en curso", "Ya hay un envio en progreso. Revisa el monitor de la cola.")
+            return
         selected = self._queue_selection_index()
         if selected is None:
             messagebox.showwarning("Sin seleccion", "Selecciona un mensaje de la cola.")
@@ -637,14 +647,20 @@ class ExplorerApp(tk.Tk):
         self._send_blast_queue_item(selected)
 
     def send_next_blast(self) -> None:
+        if self.blast_send_running:
+            messagebox.showinfo("Envio en curso", "Ya hay un envio en progreso. Revisa el monitor de la cola.")
+            return
         for idx in range(self._queue_count()):
             status, _phone, _message = self._queue_get(idx)
-            if status in {"REVISION", "SIMULADO"}:
+            if status == "REVISION":
                 self._send_blast_queue_item(idx)
                 return
         messagebox.showinfo("Cola lista", "No hay mensajes pendientes por enviar.")
 
     def send_blast_batch(self) -> None:
+        if self.blast_send_running:
+            messagebox.showinfo("Envio en curso", "Ya hay un envio en progreso. Revisa el monitor de la cola.")
+            return
         pending = self._pending_blast_indices()
         if not pending:
             messagebox.showinfo("Cola lista", "No hay mensajes pendientes por enviar.")
@@ -657,6 +673,7 @@ class ExplorerApp(tk.Tk):
             f"Programar {len(selected)} mensaje(s)?\n\nDelay por mensaje: {delay_min}-{delay_max} segundo(s).\nSe enviaran por WhatsApp Web con esta cola.",
         ):
             return
+        self._begin_blast_run(len(selected))
         total_delay = 0
         for index in selected:
             total_delay += self._blast_delay_seconds()
@@ -678,6 +695,7 @@ class ExplorerApp(tk.Tk):
         delay_seconds = self._blast_delay_seconds()
         if not messagebox.askyesno("Confirmar envio", f"Enviar este mensaje por WhatsApp Web?\n\nPara: {phone}\nDelay: {delay_seconds} segundo(s)\n\n{text}"):
             return
+        self._begin_blast_run(1)
         self._schedule_blast_send(index, delay_seconds)
 
     def _schedule_blast_send(self, index: int, delay_seconds: int) -> None:
@@ -696,18 +714,23 @@ class ExplorerApp(tk.Tk):
         except RuntimeError as exc:
             if index < self._queue_count():
                 self._queue_set(index, "ERROR", phone, text)
+            self.blast_batch_errors += 1
+            self.blast_batch_done += 1
             self.update_blast_send_status(f"Error enviando a {phone}")
+            self._finish_blast_run_if_done()
             messagebox.showerror("No pude enviar", str(exc))
             return
         if index < self._queue_count():
             self._queue_set(index, "ENVIADO", phone, text)
+        self.blast_batch_done += 1
         self._queue_select(index)
         self.save_blaster_state(show_message=False)
         self.update_blast_metrics()
         self.update_blast_send_status(f"Enviado: {phone}")
+        self._finish_blast_run_if_done()
 
     def _parse_queue_item(self, value: str) -> tuple[str, str, str]:
-        match = re.match(r"^(REVISION|SIMULADO|ENVIADO|ERROR|ESPERA\s+\d+s):\s*(.*?)\s*->\s*(.*)$", value or "", flags=re.S)
+        match = re.match(r"^(REVISION|PRUEBA|ENVIADO|ERROR|ESPERA\s+\d+s):\s*(.*?)\s*->\s*(.*)$", value or "", flags=re.S)
         if not match:
             return "", "", ""
         status, phone, text = match.groups()
@@ -780,15 +803,39 @@ class ExplorerApp(tk.Tk):
                 waiting += 1
             elif status == "ERROR":
                 errors += 1
-            elif status in {"REVISION", "SIMULADO"}:
+            elif status == "REVISION":
                 pending += 1
-        self.blast_send_status_var.set(f"{prefix} | pendientes {pending} · espera {waiting} · enviados {sent} · errores {errors}")
+        progress = ""
+        if self.blast_batch_total:
+            progress = f" | progreso {self.blast_batch_done}/{self.blast_batch_total}"
+        self.blast_send_status_var.set(f"{prefix}{progress} | pendientes {pending} · espera {waiting} · enviados {sent} · errores {errors}")
+
+    def _begin_blast_run(self, total: int) -> None:
+        self.blast_send_running = True
+        self.blast_batch_total = total
+        self.blast_batch_done = 0
+        self.blast_batch_errors = 0
+        self._set_blast_send_buttons_state("disabled")
+        self.update_blast_send_status(f"Enviando bloque de {total}")
+
+    def _finish_blast_run_if_done(self) -> None:
+        if self.blast_batch_total and self.blast_batch_done >= self.blast_batch_total:
+            total = self.blast_batch_total
+            errors = self.blast_batch_errors
+            self.blast_send_running = False
+            self._set_blast_send_buttons_state("normal")
+            self.update_blast_send_status(f"Envio terminado: {total - errors}/{total} enviados")
+
+    def _set_blast_send_buttons_state(self, state: str) -> None:
+        for name in ["send_selected_btn", "send_next_btn", "send_batch_btn"]:
+            if hasattr(self, name):
+                getattr(self, name).configure(state=state)
 
     def _pending_blast_indices(self) -> list[int]:
         indices: list[int] = []
         for idx in range(self._queue_count()):
             status, _phone, _text = self._queue_get(idx)
-            if status in {"REVISION", "SIMULADO"}:
+            if status == "REVISION":
                 indices.append(idx)
         return indices
 
