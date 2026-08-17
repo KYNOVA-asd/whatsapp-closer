@@ -23,6 +23,9 @@ Para probar con tu propia sesion sin mezclarla con tu navegador normal, esta ram
 separado de Microsoft Edge. El perfil se guarda en `.local/edge-whatsapp-profile/` y queda
 ignorado por git porque puede contener cookies y datos de sesion.
 
+Hay una carpeta de ejemplo versionada en `.local-example/` para documentar la estructura sin
+guardar datos reales.
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\abrir_whatsapp_web_edge.ps1
 ```
