@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import random
 import re
 import subprocess
 import sys
@@ -58,6 +59,13 @@ class ExplorerApp(tk.Tk):
         self.blast_messages: list[dict] = []
         self.blast_message_source_indices: list[int] = []
         self.view_buttons: dict[str, ttk.Button] = {}
+        self.require_review_var = tk.BooleanVar(value=True)
+        self.daily_limit_var = tk.StringVar(value="40")
+        self.delay_min_var = tk.StringVar(value="35")
+        self.delay_max_var = tk.StringVar(value="120")
+        self.blast_batch_var = tk.StringVar(value="10")
+        self.opt_out_var = tk.StringVar(value="BAJA, STOP, no me escribas")
+        self.local_llm_var = tk.StringVar(value="http://127.0.0.1:11434")
 
         self._configure_style()
         self._build()
@@ -285,24 +293,54 @@ class ExplorerApp(tk.Tk):
 
         numbers = self._panel(tabs)
         numbers.columnconfigure(0, weight=1)
-        numbers.rowconfigure(2, weight=1)
+        numbers.rowconfigure(4, weight=1)
         ttk.Label(numbers, text="Preparar numeros para mensajes", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(numbers, text="Importa CSV compatible, arma cola y simula ronda antes de enviar.", style="PanelMuted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 10))
+        delay_row = ttk.Frame(numbers, style="Panel.TFrame")
+        delay_row.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(delay_row, text="Delay entre mensajes", style="PanelMuted.TLabel").pack(side=LEFT, padx=(0, 8))
+        ttk.Label(delay_row, text="Min", style="PanelMuted.TLabel").pack(side=LEFT, padx=(0, 4))
+        ttk.Entry(delay_row, textvariable=self.delay_min_var, width=6).pack(side=LEFT, padx=(0, 10))
+        ttk.Label(delay_row, text="Max", style="PanelMuted.TLabel").pack(side=LEFT, padx=(0, 4))
+        ttk.Entry(delay_row, textvariable=self.delay_max_var, width=6).pack(side=LEFT, padx=(0, 10))
+        ttk.Label(delay_row, text="Bloque", style="PanelMuted.TLabel").pack(side=LEFT, padx=(8, 4))
+        ttk.Combobox(delay_row, textvariable=self.blast_batch_var, values=["10", "30", "50", "Todos"], width=8, state="readonly").pack(side=LEFT, padx=(0, 10))
+        ttk.Button(delay_row, text="Guardar delay", style="Gold.TButton", command=self.save_config).pack(side=LEFT)
+
+        self.blast_send_status_var = tk.StringVar(value="Envio: sin actividad")
+        status_band = ttk.Frame(numbers, style="Band.TFrame", padding=10)
+        status_band.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(status_band, textvariable=self.blast_send_status_var, style="MetricSmall.TLabel").pack(anchor=W)
+
         queue_wrap = ttk.Frame(numbers, style="Panel.TFrame")
-        queue_wrap.grid(row=2, column=0, sticky="nsew")
+        queue_wrap.grid(row=4, column=0, sticky="nsew")
         queue_wrap.columnconfigure(0, weight=1)
         queue_wrap.rowconfigure(0, weight=1)
-        self.queue = tk.Listbox(queue_wrap, bd=0, bg=PANEL, fg=INK, highlightthickness=1, highlightcolor=GOLD)
+        self.queue = ttk.Treeview(queue_wrap, columns=("status", "phone", "message"), show="headings", selectmode="browse")
+        for col, label, width in [
+            ("status", "Estado", 120),
+            ("phone", "Telefono", 180),
+            ("message", "Mensaje", 980),
+        ]:
+            self.queue.heading(col, text=label)
+            self.queue.column(col, width=width, anchor=W)
+        self.queue.tag_configure("REVISION", background="#fffdf5")
+        self.queue.tag_configure("SIMULADO", background="#f4efe6")
+        self.queue.tag_configure("ESPERA", background="#f2edc5")
+        self.queue.tag_configure("ENVIADO", background="#e7eee8")
+        self.queue.tag_configure("ERROR", background="#f3d8d8")
+        self.queue.tag_configure("REGLA", foreground=MUTED)
         self.queue.grid(row=0, column=0, sticky="nsew")
         for rule in ["Regla: consentimiento o relacion previa.", "Regla: limite diario y pausas.", "Regla: baja/stop cancela seguimiento."]:
-            self.queue.insert(END, rule)
+            self._queue_insert("REGLA", "", rule)
         numbers_actions = ttk.Frame(numbers, style="Panel.TFrame")
-        numbers_actions.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        numbers_actions.grid(row=5, column=0, sticky="ew", pady=(12, 0))
         ttk.Button(numbers_actions, text="Importar CSV", command=self.import_blast_csv).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Preparar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Simular ronda", style="Gold.TButton", command=self.simulate_blast_round).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Enviar seleccionado", style="Danger.TButton", command=self.send_selected_blast).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Enviar siguiente", style="Danger.TButton", command=self.send_next_blast).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(numbers_actions, text="Enviar bloque", style="Danger.TButton", command=self.send_blast_batch).pack(side=LEFT, padx=(0, 8))
         ttk.Button(numbers_actions, text="Guardar todo", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT)
 
         tabs.add(dashboard, text="Dashboard")
@@ -386,12 +424,6 @@ class ExplorerApp(tk.Tk):
         card.grid(row=0, column=0, sticky="nsew")
         ttk.Label(card, text="Config", style="PanelTitle.TLabel").pack(anchor=W)
         ttk.Label(card, text="Parametros locales para ventas, blaster, opt-out y LLM local.", style="PanelMuted.TLabel").pack(anchor=W, pady=(2, 16))
-        self.require_review_var = tk.BooleanVar(value=True)
-        self.daily_limit_var = tk.StringVar(value="40")
-        self.delay_min_var = tk.StringVar(value="35")
-        self.delay_max_var = tk.StringVar(value="120")
-        self.opt_out_var = tk.StringVar(value="BAJA, STOP, no me escribas")
-        self.local_llm_var = tk.StringVar(value="http://127.0.0.1:11434")
         for label, var in [("Limite diario", self.daily_limit_var), ("Pausa minima", self.delay_min_var), ("Pausa maxima", self.delay_max_var), ("Palabras opt-out", self.opt_out_var), ("LLM local", self.local_llm_var)]:
             self._config_row(card, label, var)
         ttk.Checkbutton(card, text="Requerir aprobacion antes de enviar", variable=self.require_review_var).pack(anchor=W, pady=(8, 12))
@@ -552,7 +584,7 @@ class ExplorerApp(tk.Tk):
         if not template:
             messagebox.showwarning("Sin plantilla", "Escribe una plantilla primero.")
             return
-        self.queue.delete(0, END)
+        self._queue_clear()
         product = self.blast_product_var.get().strip() or "tu servicio"
         added = 0
         skipped = 0
@@ -561,10 +593,11 @@ class ExplorerApp(tk.Tk):
                 skipped += 1
                 continue
             msg = template.format(nombre=lead.nombre, telefono=lead.telefono, producto=product, etapa=lead.etapa)
-            self.queue.insert(END, f"REVISION: {lead.telefono} -> {msg[:130]}")
+            self._queue_insert("REVISION", lead.telefono, msg)
             added += 1
         self.save_blaster_state(show_message=False)
         self.update_blast_metrics()
+        self.update_blast_send_status("Cola preparada para revision")
         messagebox.showinfo("Cola preparada", f"Listos para revision: {added}. Sin telefono: {skipped}.")
 
     def _has_blast_phone(self, lead: Lead) -> bool:
@@ -572,60 +605,202 @@ class ExplorerApp(tk.Tk):
         return len(digits) >= 10
 
     def simulate_blast_round(self) -> None:
-        if self.queue.size() == 0:
+        if self._queue_count() == 0:
             messagebox.showwarning("Cola vacia", "Prepara una cola primero.")
             return
-        for idx in range(min(3, self.queue.size())):
-            value = self.queue.get(idx)
-            self.queue.delete(idx)
-            self.queue.insert(idx, value.replace("REVISION", "SIMULADO", 1))
+        for idx in range(min(3, self._queue_count())):
+            status, phone, text = self._queue_get(idx)
+            if status == "REVISION":
+                self._queue_set(idx, "SIMULADO", phone, text)
         self.save_blaster_state(show_message=False)
         self.update_blast_metrics()
 
     def send_selected_blast(self) -> None:
-        selected = self.queue.curselection()
-        if not selected:
+        selected = self._queue_selection_index()
+        if selected is None:
             messagebox.showwarning("Sin seleccion", "Selecciona un mensaje de la cola.")
             return
-        self._send_blast_queue_item(int(selected[0]))
+        self._send_blast_queue_item(selected)
 
     def send_next_blast(self) -> None:
-        for idx in range(self.queue.size()):
-            status, _phone, _message = self._parse_queue_item(self.queue.get(idx))
+        for idx in range(self._queue_count()):
+            status, _phone, _message = self._queue_get(idx)
             if status in {"REVISION", "SIMULADO"}:
                 self._send_blast_queue_item(idx)
                 return
         messagebox.showinfo("Cola lista", "No hay mensajes pendientes por enviar.")
 
+    def send_blast_batch(self) -> None:
+        pending = self._pending_blast_indices()
+        if not pending:
+            messagebox.showinfo("Cola lista", "No hay mensajes pendientes por enviar.")
+            return
+        batch_size = self._blast_batch_size(len(pending))
+        selected = pending[:batch_size]
+        delay_min, delay_max = self._blast_delay_range()
+        if not messagebox.askyesno(
+            "Confirmar bloque",
+            f"Programar {len(selected)} mensaje(s)?\n\nDelay por mensaje: {delay_min}-{delay_max} segundo(s).\nSe enviaran por WhatsApp Web con esta cola.",
+        ):
+            return
+        total_delay = 0
+        for index in selected:
+            total_delay += self._blast_delay_seconds()
+            self._schedule_blast_send(index, total_delay)
+        self.save_blaster_state(show_message=False)
+        self.update_blast_send_status(f"Bloque programado: {len(selected)} mensaje(s)")
+
     def _send_blast_queue_item(self, index: int) -> None:
-        value = self.queue.get(index)
-        status, phone, text = self._parse_queue_item(value)
+        status, phone, text = self._queue_get(index)
         if status == "ENVIADO":
             messagebox.showinfo("Ya enviado", "Ese mensaje ya esta marcado como enviado.")
+            return
+        if status.startswith("ESPERA"):
+            messagebox.showinfo("En espera", "Ese mensaje ya esta programado con delay.")
             return
         if not phone or not text:
             messagebox.showwarning("Formato invalido", "No pude detectar telefono y mensaje en esa fila.")
             return
-        if not messagebox.askyesno("Confirmar envio", f"Enviar este mensaje por WhatsApp Web?\n\nPara: {phone}\n\n{text}"):
+        delay_seconds = self._blast_delay_seconds()
+        if not messagebox.askyesno("Confirmar envio", f"Enviar este mensaje por WhatsApp Web?\n\nPara: {phone}\nDelay: {delay_seconds} segundo(s)\n\n{text}"):
             return
+        self._schedule_blast_send(index, delay_seconds)
+
+    def _schedule_blast_send(self, index: int, delay_seconds: int) -> None:
+        status, phone, text = self._queue_get(index)
+        if not phone or not text or status == "ENVIADO":
+            return
+        self._queue_set(index, f"ESPERA {delay_seconds}s", phone, text)
+        self.update_blast_send_status(f"Programado: {phone} en {delay_seconds}s")
+        self.after(max(delay_seconds, 0) * 1000, lambda idx=index, target=phone, message=text: self._finish_blast_send(idx, target, message))
+        self.update_blast_metrics()
+
+    def _finish_blast_send(self, index: int, phone: str, text: str) -> None:
+        self.update_blast_send_status(f"Enviando ahora: {phone}")
         try:
             self._run_bridge("send", "--chat", phone, "--text", text)
         except RuntimeError as exc:
+            if index < self._queue_count():
+                self._queue_set(index, "ERROR", phone, text)
+            self.update_blast_send_status(f"Error enviando a {phone}")
             messagebox.showerror("No pude enviar", str(exc))
             return
-        self.queue.delete(index)
-        self.queue.insert(index, f"ENVIADO: {phone} -> {text}")
-        self.queue.selection_clear(0, END)
-        self.queue.selection_set(index)
+        if index < self._queue_count():
+            self._queue_set(index, "ENVIADO", phone, text)
+        self._queue_select(index)
         self.save_blaster_state(show_message=False)
         self.update_blast_metrics()
+        self.update_blast_send_status(f"Enviado: {phone}")
 
     def _parse_queue_item(self, value: str) -> tuple[str, str, str]:
-        match = re.match(r"^(REVISION|SIMULADO|ENVIADO):\s*(.*?)\s*->\s*(.*)$", value or "", flags=re.S)
+        match = re.match(r"^(REVISION|SIMULADO|ENVIADO|ERROR|ESPERA\s+\d+s):\s*(.*?)\s*->\s*(.*)$", value or "", flags=re.S)
         if not match:
             return "", "", ""
         status, phone, text = match.groups()
         return status, phone.strip(), text.strip()
+
+    def _queue_insert(self, status: str, phone: str, text: str) -> None:
+        self.queue.insert("", END, values=(status, phone, text), tags=(status.split()[0],))
+
+    def _queue_clear(self) -> None:
+        self.queue.delete(*self.queue.get_children())
+
+    def _queue_count(self) -> int:
+        return len(self.queue.get_children())
+
+    def _queue_iid(self, index: int) -> str | None:
+        children = self.queue.get_children()
+        if index < 0 or index >= len(children):
+            return None
+        return str(children[index])
+
+    def _queue_get(self, index: int) -> tuple[str, str, str]:
+        iid = self._queue_iid(index)
+        if iid is None:
+            return "", "", ""
+        values = list(self.queue.item(iid, "values"))
+        values += ["", "", ""]
+        return str(values[0]), str(values[1]), str(values[2])
+
+    def _queue_set(self, index: int, status: str, phone: str, text: str) -> None:
+        iid = self._queue_iid(index)
+        if iid is not None:
+            self.queue.item(iid, values=(status, phone, text), tags=(status.split()[0],))
+
+    def _queue_select(self, index: int) -> None:
+        iid = self._queue_iid(index)
+        if iid is None:
+            return
+        self.queue.selection_set(iid)
+        self.queue.focus(iid)
+
+    def _queue_selection_index(self) -> int | None:
+        selected = self.queue.selection()
+        if not selected:
+            return None
+        children = list(self.queue.get_children())
+        try:
+            return children.index(selected[0])
+        except ValueError:
+            return None
+
+    def _queue_to_strings(self) -> list[str]:
+        items: list[str] = []
+        for idx in range(self._queue_count()):
+            status, phone, text = self._queue_get(idx)
+            if status == "REGLA":
+                items.append(text)
+            else:
+                items.append(f"{status}: {phone} -> {text}")
+        return items
+
+    def update_blast_send_status(self, prefix: str = "Envio") -> None:
+        if not hasattr(self, "blast_send_status_var"):
+            return
+        sent = waiting = errors = pending = 0
+        for idx in range(self._queue_count()):
+            status, _phone, _text = self._queue_get(idx)
+            if status == "ENVIADO":
+                sent += 1
+            elif status.startswith("ESPERA"):
+                waiting += 1
+            elif status == "ERROR":
+                errors += 1
+            elif status in {"REVISION", "SIMULADO"}:
+                pending += 1
+        self.blast_send_status_var.set(f"{prefix} | pendientes {pending} · espera {waiting} · enviados {sent} · errores {errors}")
+
+    def _pending_blast_indices(self) -> list[int]:
+        indices: list[int] = []
+        for idx in range(self._queue_count()):
+            status, _phone, _text = self._queue_get(idx)
+            if status in {"REVISION", "SIMULADO"}:
+                indices.append(idx)
+        return indices
+
+    def _blast_batch_size(self, pending_count: int) -> int:
+        value = self.blast_batch_var.get()
+        if value == "Todos":
+            return pending_count
+        try:
+            return min(max(int(value), 1), pending_count)
+        except ValueError:
+            return min(10, pending_count)
+
+    def _blast_delay_range(self) -> tuple[int, int]:
+        try:
+            delay_min = max(int(float(self.delay_min_var.get())), 0)
+        except ValueError:
+            delay_min = 0
+        try:
+            delay_max = max(int(float(self.delay_max_var.get())), delay_min)
+        except ValueError:
+            delay_max = delay_min
+        return delay_min, delay_max
+
+    def _blast_delay_seconds(self) -> int:
+        delay_min, delay_max = self._blast_delay_range()
+        return random.randint(delay_min, delay_max)
 
     def refresh_blast_message_list(self) -> None:
         self.blast_message_list.delete(0, END)
@@ -727,7 +902,7 @@ class ExplorerApp(tk.Tk):
         self.blast_contacts_var.set(str(len(self.leads)))
         self.blast_ready_var.set(str(sum(1 for lead in self.leads if self._has_blast_phone(lead))))
         self.blast_messages_var.set(str(sum(1 for item in self.blast_messages if item.get("type", "campaign") == "campaign")))
-        self.blast_queue_var.set(str(self.queue.size() if hasattr(self, "queue") else 0))
+        self.blast_queue_var.set(str(self._queue_count() if hasattr(self, "queue") else 0))
 
     def delete_blast_message(self) -> None:
         index = self.current_blast_message_index()
@@ -1083,6 +1258,7 @@ class ExplorerApp(tk.Tk):
         self.daily_limit_var.set(str(data.get("daily_limit", self.daily_limit_var.get())))
         self.delay_min_var.set(str(data.get("delay_min_seconds", self.delay_min_var.get())))
         self.delay_max_var.set(str(data.get("delay_max_seconds", self.delay_max_var.get())))
+        self.blast_batch_var.set(str(data.get("blast_batch_size", self.blast_batch_var.get())))
         self.opt_out_var.set(str(data.get("opt_out_words", self.opt_out_var.get())))
         self.local_llm_var.set(str(data.get("local_llm_url", self.local_llm_var.get())))
         self.require_review_var.set(bool(data.get("require_review", True)))
@@ -1093,6 +1269,7 @@ class ExplorerApp(tk.Tk):
             "daily_limit": self.daily_limit_var.get(),
             "delay_min_seconds": self.delay_min_var.get(),
             "delay_max_seconds": self.delay_max_var.get(),
+            "blast_batch_size": self.blast_batch_var.get(),
             "opt_out_words": self.opt_out_var.get(),
             "local_llm_url": self.local_llm_var.get(),
             "require_review": self.require_review_var.get(),
@@ -1129,9 +1306,13 @@ class ExplorerApp(tk.Tk):
             self.on_blast_message_select(tk.Event())
         items = data.get("queue", [])
         if isinstance(items, list):
-            self.queue.delete(0, END)
+            self._queue_clear()
             for item in items:
-                self.queue.insert(END, str(item))
+                status, phone, text = self._parse_queue_item(str(item))
+                if status:
+                    self._queue_insert(status, phone, text)
+                else:
+                    self._queue_insert("REGLA", "", str(item))
         self.update_blast_metrics()
 
     def save_blaster_state(self, *, show_message: bool = True) -> None:
@@ -1142,7 +1323,7 @@ class ExplorerApp(tk.Tk):
             "messages": self.blast_messages,
             "active_message": self.blast_message_name_var.get(),
             "template": self.blast_template.get("1.0", END).strip(),
-            "queue": list(self.queue.get(0, END)),
+            "queue": self._queue_to_strings(),
         }
         BLASTER_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         self.update_blast_metrics()
