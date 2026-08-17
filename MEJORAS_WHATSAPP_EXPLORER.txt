@@ -1,0 +1,65 @@
+Mejoras pendientes para WhatsApp Web Explorer
+Fecha: 2026-08-17
+
+1. Vendedor: mejorar envio de texto
+- Revisar por que falla con "No encontre la caja de texto".
+- Detectar mejor si el chat esta abierto y si el campo de mensaje esta disponible.
+- Mostrar instrucciones claras cuando WhatsApp Web no tenga el chat activo.
+- Agregar estado visible antes de enviar: chat destino, texto listo y si WhatsApp Web esta conectado.
+
+2. Vendedor: exportar CSV
+- Agregar boton "Exportar CSV" en la bandeja de ventas.
+- Exportar leads con nombre, telefono/chat, etapa, score, ultimo mensaje y pendiente.
+- Mantener compatibilidad con el Blaster para poder reimportar contactos.
+
+3. Blaster: normalizacion de telefonos
+- La cola no debe fallar si el numero viene como 10 digitos Mexico.
+- Aceptar formatos:
+  - 9984915207
+  - 529984915207
+  - +529984915207
+  - 5219984915207
+  - +5219984915207
+- Normalizar antes de enviar a WhatsApp Web.
+- Mostrar en la tabla el numero original y el numero normalizado.
+- Validar que no mande si no puede formar un telefono valido.
+
+4. Blaster: estado de envio
+- Mejorar monitor para que diga claramente:
+  - cual numero se esta enviando,
+  - cuantos van enviados,
+  - cuantos faltan,
+  - cuantos fallaron,
+  - proximo envio y delay restante.
+- Evitar que el usuario pueda iniciar otro bloque si ya hay envio en curso.
+
+5. Extractor: mini tabla manual sin TXT
+- Agregar una tabla manual para capturar contactos de prueba.
+- Campos sugeridos:
+  - nombre,
+  - contacto,
+  - telefono,
+  - notas.
+- Botones:
+  - Agregar fila,
+  - Editar fila,
+  - Borrar fila,
+  - Limpiar tabla,
+  - Exportar CSV.
+- Debe poder exportar CSV compatible con Blaster sin necesidad de importar un TXT.
+
+6. Extractor: datos de prueba
+- Permitir poner "nombre contacto pruebas" y "numero pruebas" manualmente.
+- Mantener esos contactos en memoria o guardarlos localmente si hace falta.
+- Usar el mismo formato de CSV que entiende Blaster:
+  - nombre,
+  - telefono,
+  - phone,
+  - sender,
+  - source.
+
+7. UX general
+- Revisar textos que todavia suenen a demo o prueba cuando sea una accion real.
+- Rojo solo para borrar, limpiar, cancelar o errores.
+- Verde para acciones principales como preparar/enviar.
+- Dorado para guardar, vista previa o acciones secundarias.
