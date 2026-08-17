@@ -19,6 +19,7 @@ LOCAL_DIR = ROOT / ".local" / "whatsapp-web-explorer"
 EDGE_PROFILE = ROOT / ".local" / "edge-whatsapp-profile"
 LEADS_FILE = LOCAL_DIR / "leads.json"
 CONFIG_FILE = LOCAL_DIR / "config.json"
+BLASTER_FILE = LOCAL_DIR / "blaster.json"
 EDGE_SCRIPT = ROOT / "scripts" / "abrir_whatsapp_web_edge.ps1"
 BRIDGE_SCRIPT = ROOT / "scripts" / "whatsapp_web_bridge.py"
 
@@ -198,10 +199,22 @@ class ExplorerApp(tk.Tk):
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         ttk.Label(left, text="Blaster consentido", style="PanelTitle.TLabel").pack(anchor=W)
         ttk.Label(left, text="Promos a lista propia, afiliados o clientes con relacion previa.", style="PanelMuted.TLabel").pack(anchor=W, pady=(2, 12))
+
+        product_row = ttk.Frame(left, style="Panel.TFrame")
+        product_row.pack(fill=X, pady=(0, 10))
+        ttk.Label(product_row, text="Producto", style="PanelMuted.TLabel", width=10).pack(side=LEFT)
+        self.blast_product_var = tk.StringVar(value="tu servicio")
+        ttk.Entry(product_row, textvariable=self.blast_product_var).pack(side=LEFT, fill=X, expand=True)
+
         self.blast_template = tk.Text(left, height=12, wrap="word", bd=0, bg="#f4efe6", fg=INK, padx=12, pady=12)
         self.blast_template.pack(fill=X)
         self.blast_template.insert(END, "Hola {nombre}, tenemos una promo de {producto}. Si quieres mas info responde SI.")
-        ttk.Button(left, text="Preparar cola desde CRM", style="Accent.TButton", command=self.prepare_blast_campaign).pack(anchor=W, pady=(12, 0))
+
+        actions = ttk.Frame(left, style="Panel.TFrame")
+        actions.pack(fill=X, pady=(12, 0))
+        ttk.Button(actions, text="Importar CSV", command=self.import_blast_csv).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(actions, text="Preparar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(actions, text="Guardar plantilla", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT)
         ttk.Button(left, text="Simular ronda", style="Gold.TButton", command=self.simulate_blast_round).pack(anchor=W, pady=(8, 0))
         right = self._panel(view)
         right.grid(row=0, column=1, sticky="nsew")
@@ -323,6 +336,7 @@ class ExplorerApp(tk.Tk):
                 self.leads = []
         self.refresh_tree()
         self.load_config()
+        self.load_blaster_state()
 
     def refresh_tree(self) -> None:
         self.tree.delete(*self.tree.get_children())
@@ -389,6 +403,29 @@ class ExplorerApp(tk.Tk):
         path = filedialog.askopenfilename(title="Importar contactos CSV", filetypes=[("CSV", "*.csv"), ("Todos", "*.*")])
         if not path:
             return
+        imported = self._read_leads_csv(path)
+        if imported:
+            self.leads = imported
+            self.selected_index = 0
+            self.refresh_tree()
+            messagebox.showinfo("CSV importado", f"Se cargaron {len(imported)} contacto(s).")
+
+    def import_blast_csv(self) -> None:
+        path = filedialog.askopenfilename(title="Importar CSV para blaster", filetypes=[("CSV", "*.csv"), ("Todos", "*.*")])
+        if not path:
+            return
+        imported = self._read_leads_csv(path)
+        if not imported:
+            messagebox.showwarning("CSV vacio", "No pude cargar contactos desde ese CSV.")
+            return
+        self.leads = imported
+        self.selected_index = 0
+        self.refresh_tree()
+        self._write_leads_file()
+        valid = sum(1 for lead in imported if self._has_blast_phone(lead))
+        messagebox.showinfo("CSV blaster", f"Se cargaron {len(imported)} contacto(s). Con telefono para blaster: {valid}.")
+
+    def _read_leads_csv(self, path: str) -> list[Lead]:
         imported: list[Lead] = []
         with open(path, newline="", encoding="utf-8-sig") as handle:
             for row in csv.DictReader(handle):
@@ -398,11 +435,7 @@ class ExplorerApp(tk.Tk):
                 telefono = telefono.strip()
                 pendiente = "Preparar mensaje" if telefono else "Falta telefono para blaster"
                 imported.append(Lead(nombre.strip(), telefono or nombre.strip(), "importado", f"Contacto importado para {producto}.", pendiente, 0))
-        if imported:
-            self.leads = imported
-            self.selected_index = 0
-            self.refresh_tree()
-            messagebox.showinfo("CSV importado", f"Se cargaron {len(imported)} contacto(s).")
+        return imported
 
     def generate_draft(self) -> None:
         lead = self.current_lead()
@@ -431,9 +464,22 @@ class ExplorerApp(tk.Tk):
             messagebox.showwarning("Sin plantilla", "Escribe una plantilla primero.")
             return
         self.queue.delete(0, END)
+        product = self.blast_product_var.get().strip() or "tu servicio"
+        added = 0
+        skipped = 0
         for lead in self.leads:
-            msg = template.format(nombre=lead.nombre, telefono=lead.telefono, producto="tu servicio", etapa=lead.etapa)
-            self.queue.insert(END, f"REVISION: {lead.telefono} -> {msg[:110]}")
+            if not self._has_blast_phone(lead):
+                skipped += 1
+                continue
+            msg = template.format(nombre=lead.nombre, telefono=lead.telefono, producto=product, etapa=lead.etapa)
+            self.queue.insert(END, f"REVISION: {lead.telefono} -> {msg[:130]}")
+            added += 1
+        self.save_blaster_state(show_message=False)
+        messagebox.showinfo("Cola preparada", f"Listos para revision: {added}. Sin telefono: {skipped}.")
+
+    def _has_blast_phone(self, lead: Lead) -> bool:
+        digits = re.sub(r"\D", "", lead.telefono or "")
+        return len(digits) >= 10
 
     def simulate_blast_round(self) -> None:
         if self.queue.size() == 0:
@@ -443,6 +489,7 @@ class ExplorerApp(tk.Tk):
             value = self.queue.get(idx)
             self.queue.delete(idx)
             self.queue.insert(idx, value.replace("REVISION", "SIMULADO", 1))
+        self.save_blaster_state(show_message=False)
 
     def import_whatsapp_txt(self) -> None:
         path = filedialog.askopenfilename(
@@ -797,6 +844,35 @@ class ExplorerApp(tk.Tk):
         CONFIG_FILE.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
         messagebox.showinfo("Config guardada", f"Config guardada en {CONFIG_FILE}")
 
+    def load_blaster_state(self) -> None:
+        if not BLASTER_FILE.exists():
+            return
+        try:
+            data = json.loads(BLASTER_FILE.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return
+        self.blast_product_var.set(str(data.get("product", self.blast_product_var.get())))
+        template = str(data.get("template", "")).strip()
+        if template:
+            self.blast_template.delete("1.0", END)
+            self.blast_template.insert(END, template)
+        items = data.get("queue", [])
+        if isinstance(items, list):
+            self.queue.delete(0, END)
+            for item in items:
+                self.queue.insert(END, str(item))
+
+    def save_blaster_state(self, *, show_message: bool = True) -> None:
+        LOCAL_DIR.mkdir(parents=True, exist_ok=True)
+        data = {
+            "product": self.blast_product_var.get(),
+            "template": self.blast_template.get("1.0", END).strip(),
+            "queue": list(self.queue.get(0, END)),
+        }
+        BLASTER_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        if show_message:
+            messagebox.showinfo("Blaster guardado", f"Plantilla y cola guardadas en {BLASTER_FILE}")
+
     def _run_bridge(self, *args: str) -> dict:
         completed = subprocess.run([sys.executable, str(BRIDGE_SCRIPT), *args], cwd=str(ROOT), text=True, capture_output=True, check=False)
         payload = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
@@ -809,9 +885,12 @@ class ExplorerApp(tk.Tk):
         return result
 
     def save_leads(self) -> None:
+        self._write_leads_file()
+        messagebox.showinfo("Guardado", f"Datos guardados en {LEADS_FILE}")
+
+    def _write_leads_file(self) -> None:
         LOCAL_DIR.mkdir(parents=True, exist_ok=True)
         LEADS_FILE.write_text(json.dumps([asdict(lead) for lead in self.leads], ensure_ascii=False, indent=2), encoding="utf-8")
-        messagebox.showinfo("Guardado", f"Datos guardados en {LEADS_FILE}")
 
     def open_edge(self) -> None:
         subprocess.Popen(["powershell", "-ExecutionPolicy", "Bypass", "-File", str(EDGE_SCRIPT)], cwd=str(ROOT))
