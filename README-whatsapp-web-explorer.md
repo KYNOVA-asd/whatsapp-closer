@@ -22,12 +22,16 @@ el flujo y validar si sirve para el negocio.
 La demo de escritorio esta organizada como una suite con cuatro modulos:
 
 - **Vendedor:** lee el chat activo, genera borradores, responde pruebas controladas y mantiene el
-  seguimiento del lead.
+  seguimiento del lead. La vista nueva ocupa todo el area de trabajo y puede leer un chat por
+  nombre, extraer quien mando cada mensaje y enviar el borrador real con confirmacion.
 - **Blaster:** prepara mensajes promocionales para listas propias o importadas con consentimiento.
   No envia en automatico; primero arma cola de revision, aplica limites y respeta opt-out.
-- **Extractor:** lista chats visibles y permite pasarlos al CRM como `por-confirmar`. No esta
-  pensado para recolectar numeros frios de grupos ni para spam.
+- **Extractor afiliados:** lista chats visibles de grupos/listas autorizadas, muestra actividad
+  reciente y permite pasarlos al CRM para seguimiento de una prueba de ventas.
 - **Config:** guarda limites, pausas, palabras de baja y endpoint de LLM local en `.local/`.
+
+La paleta de la interfaz usa `#eeeae3`, `#355244`, `#cfc47c`, negro/blanco, y rojo para acciones
+que pueden cancelar o enviar de forma real.
 
 ## Iniciar WhatsApp Web con Edge local
 
@@ -83,6 +87,7 @@ Tambien puedes probarlo por terminal:
 
 ```powershell
 python scripts\whatsapp_web_bridge.py read
+python scripts\whatsapp_web_bridge.py read --chat "Yo Mero"
 python scripts\whatsapp_web_bridge.py send --text "hola mundo"
 ```
 

@@ -69,6 +69,14 @@ def _read_active_chat(page) -> dict[str, Any]:
             document.querySelector('header [dir="auto"][title]') ||
             document.querySelector('header [dir="auto"]');
           const title = titleNode ? (titleNode.getAttribute('title') || titleNode.textContent || '').trim() : '';
+          const parseMeta = (meta) => {
+            const value = meta || '';
+            const match = value.match(/^\\[([^\\]]+)\\]\\s*([^:]+):\\s*$/);
+            return {
+              at: match ? match[1] : '',
+              sender: match ? match[2].trim() : ''
+            };
+          };
           const nodes = [
             ...document.querySelectorAll('div.message-in, div.message-out, [data-pre-plain-text]')
           ];
@@ -80,13 +88,17 @@ def _read_active_chat(page) -> dict[str, Any]:
             const meta = node.querySelector('[data-pre-plain-text]');
             const ownMeta = node.getAttribute('data-pre-plain-text');
             const parent = node.closest('div.message-in, div.message-out');
+            const metaValue = ownMeta || (meta ? meta.getAttribute('data-pre-plain-text') : '');
+            const parsed = parseMeta(metaValue);
             return {
               direction:
                 node.classList.contains('message-in') || parent?.classList.contains('message-in') ? 'in' :
                 node.classList.contains('message-out') || parent?.classList.contains('message-out') ? 'out' :
                 'unknown',
               text,
-              meta: ownMeta || (meta ? meta.getAttribute('data-pre-plain-text') : '')
+              meta: metaValue,
+              sender: parsed.sender,
+              at: parsed.at
             };
           }).filter((item) => item.text);
           return {
@@ -188,11 +200,14 @@ def _send_to_active_chat(page, text: str) -> None:
     page.keyboard.press("Enter")
 
 
-def command_read() -> BridgeResult:
+def command_read(chat: str | None = None) -> BridgeResult:
     pw = browser = None
     try:
         pw, browser, page = _connect_page()
+        opened = _open_chat(page, chat) if chat else None
         data = _read_active_chat(page)
+        if opened:
+            data["opened"] = opened
         return BridgeResult(True, "Chat activo leido.", data)
     except Exception as exc:  # noqa: BLE001 - command-line bridge reports user-facing errors.
         return BridgeResult(False, str(exc), {})
@@ -260,7 +275,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Bridge experimental para WhatsApp Web.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="Lista chats visibles en la bandeja.")
-    sub.add_parser("read", help="Lee el chat activo visible.")
+    read_cmd = sub.add_parser("read", help="Lee el chat activo visible.")
+    read_cmd.add_argument("--chat", default=None, help="Opcional: abre este chat visible antes de leer.")
     open_cmd = sub.add_parser("open", help="Abre un chat visible por nombre.")
     open_cmd.add_argument("--chat", required=True, help="Nombre o texto visible del chat.")
     send = sub.add_parser("send", help="Envia un mensaje explicito al chat activo.")
@@ -271,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "list":
         return command_list().print()
     if args.command == "read":
-        return command_read().print()
+        return command_read(args.chat).print()
     if args.command == "open":
         return command_open(args.chat).print()
     if args.command == "send":
