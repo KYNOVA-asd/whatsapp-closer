@@ -94,6 +94,17 @@
 
 
 # ─────────────────────────────────────────────────────────────
+# Prototipos locales de WhatsApp Web.
+#
+# Aca vive el perfil persistente de Edge para mantener iniciada la
+# sesion de WhatsApp Web durante el experimento de la rama
+# `whatsapp-web-explorer`. Puede contener cookies, local storage y
+# otros datos de sesion: nunca va a git.
+# ─────────────────────────────────────────────────────────────
+/.local/
+
+
+# ─────────────────────────────────────────────────────────────
 # Lo que escribe la suite.
 #
 # `pruebas/salida-caso-01.json` lo deja el fixture `salida_caso_01` de

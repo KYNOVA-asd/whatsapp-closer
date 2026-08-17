@@ -17,6 +17,20 @@ el flujo y validar si sirve para el negocio.
 
 ## Lo que se puede construir en esta rama
 
+## Iniciar WhatsApp Web con Edge local
+
+Para probar con tu propia sesion sin mezclarla con tu navegador normal, esta rama usa un perfil
+separado de Microsoft Edge. El perfil se guarda en `.local/edge-whatsapp-profile/` y queda
+ignorado por git porque puede contener cookies y datos de sesion.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\abrir_whatsapp_web_edge.ps1
+```
+
+Al abrirse Edge, escanea el QR desde tu telefono. La proxima vez que ejecutes el mismo comando,
+WhatsApp Web deberia recordar la sesion mientras el telefono y WhatsApp mantengan el dispositivo
+vinculado.
+
 ### Monitor local de WhatsApp Web
 
 Lee chats visibles, contacto, ultimo mensaje y estado, y lo guarda localmente para poder revisar
