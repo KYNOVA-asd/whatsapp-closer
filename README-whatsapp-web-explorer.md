@@ -34,6 +34,22 @@ Al abrirse Edge, escanea el QR desde tu telefono. La proxima vez que ejecutes el
 WhatsApp Web deberia recordar la sesion mientras el telefono y WhatsApp mantengan el dispositivo
 vinculado.
 
+## Abrir la demo con interfaz Python
+
+La rama tambien trae un panel local de escritorio para explorar el producto antes de construir el
+scraper real. El panel abre WhatsApp Web con Edge, muestra una bandeja CRM demo, importa CSV,
+genera borradores y simula una cola de envio sin mandar mensajes reales.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\abrir_panel_whatsapp_web.ps1
+```
+
+Tambien se puede abrir directo:
+
+```powershell
+python scripts\whatsapp_web_explorer_app.py
+```
+
 ### Monitor local de WhatsApp Web
 
 Lee chats visibles, contacto, ultimo mensaje y estado, y lo guarda localmente para poder revisar

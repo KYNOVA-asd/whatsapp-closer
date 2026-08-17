@@ -21,3 +21,5 @@ Para crearla y abrir WhatsApp Web:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\abrir_whatsapp_web_edge.ps1
 ```
+
+Para probar la importacion desde la interfaz Python, usa `contactos-demo.csv`.
