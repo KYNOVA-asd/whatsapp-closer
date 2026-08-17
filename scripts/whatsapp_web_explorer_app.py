@@ -454,7 +454,7 @@ class ExplorerApp(tk.Tk):
         self.extract_candidates_cache = candidates
         numbers = self._numbers_from_candidates(candidates)
         self.visible_chats = numbers
-        self._render_extractor_rows(numbers, source="txt")
+        self._render_extractor_rows(numbers or candidates, source="txt" if numbers else "candidates")
         self.extract_file_var.set(Path(path).name[:18])
         self.extract_candidates_var.set(str(len(candidates)))
         self.extract_unique_var.set(str(len(numbers)))
@@ -471,7 +471,7 @@ class ExplorerApp(tk.Tk):
             return
         numbers = self._numbers_from_candidates(self.extract_candidates_cache)
         self.visible_chats = numbers
-        self._render_extractor_rows(numbers, source="txt")
+        self._render_extractor_rows(numbers or self.extract_candidates_cache, source="txt" if numbers else "candidates")
         self.extract_unique_var.set(str(len(numbers)))
         self.extract_phones_var.set(str(len(numbers)))
 
@@ -486,6 +486,12 @@ class ExplorerApp(tk.Tk):
             if source == "txt":
                 title = str(idx + 1)
                 phone = item.get("final", "")
+                sender = item.get("sender", "")
+                context = item.get("raw", "")
+                reason = item.get("reason", "")
+            elif source == "candidates":
+                title = str(idx + 1)
+                phone = ""
                 sender = item.get("sender", "")
                 context = item.get("raw", "")
                 reason = item.get("reason", "")
