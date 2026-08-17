@@ -392,10 +392,12 @@ class ExplorerApp(tk.Tk):
         imported: list[Lead] = []
         with open(path, newline="", encoding="utf-8-sig") as handle:
             for row in csv.DictReader(handle):
-                nombre = row.get("nombre") or row.get("name") or row.get("Nombre") or "Contacto CSV"
-                telefono = row.get("telefono") or row.get("phone") or row.get("Telefono") or nombre
+                nombre = row.get("nombre") or row.get("name") or row.get("Nombre") or row.get("sender") or "Contacto CSV"
+                telefono = row.get("telefono") or row.get("phone") or row.get("Telefono") or ""
                 producto = row.get("producto") or row.get("product") or "producto"
-                imported.append(Lead(nombre.strip(), telefono.strip(), "importado", f"Contacto importado para {producto}.", "Preparar mensaje", 0))
+                telefono = telefono.strip()
+                pendiente = "Preparar mensaje" if telefono else "Falta telefono para blaster"
+                imported.append(Lead(nombre.strip(), telefono or nombre.strip(), "importado", f"Contacto importado para {producto}.", pendiente, 0))
         if imported:
             self.leads = imported
             self.selected_index = 0
@@ -668,13 +670,17 @@ class ExplorerApp(tk.Tk):
         if not path:
             return
         with open(path, "w", newline="", encoding="utf-8-sig") as handle:
-            writer = csv.DictWriter(handle, fieldnames=["phone", "raw", "sender", "line", "at", "field", "reason", "source"])
+            writer = csv.DictWriter(handle, fieldnames=["nombre", "telefono", "phone", "raw", "sender", "line", "at", "field", "reason", "source"])
             writer.writeheader()
             for item in self.visible_chats:
+                phone = item.get("final") or item.get("phone", "")
+                sender = item.get("sender", "")
                 writer.writerow({
-                    "phone": item.get("final") or item.get("phone", ""),
+                    "nombre": sender or item.get("title", ""),
+                    "telefono": phone,
+                    "phone": phone,
                     "raw": item.get("raw", ""),
-                    "sender": item.get("sender", ""),
+                    "sender": sender,
                     "line": item.get("line", ""),
                     "at": item.get("at", ""),
                     "field": item.get("field", ""),
