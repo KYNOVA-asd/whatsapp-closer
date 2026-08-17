@@ -7,7 +7,6 @@ import json
 import re
 import subprocess
 import sys
-import webbrowser
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from tkinter import BOTH, END, LEFT, W, X, filedialog, messagebox
@@ -22,7 +21,6 @@ LEADS_FILE = LOCAL_DIR / "leads.json"
 CONFIG_FILE = LOCAL_DIR / "config.json"
 EDGE_SCRIPT = ROOT / "scripts" / "abrir_whatsapp_web_edge.ps1"
 BRIDGE_SCRIPT = ROOT / "scripts" / "whatsapp_web_bridge.py"
-EXTRACTOR_HTML = ROOT / "docs" / "extractor-afiliados.html"
 
 BG = "#eeeae3"
 GREEN = "#355244"
@@ -232,8 +230,7 @@ class ExplorerApp(tk.Tk):
         ttk.Button(row, text="Listar chats visibles", style="Accent.TButton", command=self.load_visible_chats).pack(side=LEFT, padx=(0, 8))
         ttk.Button(row, text="Importar TXT", style="Gold.TButton", command=self.import_whatsapp_txt).pack(side=LEFT, padx=(0, 8))
         ttk.Button(row, text="Agregar a CRM", command=self.add_selected_visible_chat).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(row, text="Exportar CSV", command=self.export_extractor_csv).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(row, text="Abrir HTML", command=self.open_extractor_html).pack(side=LEFT)
+        ttk.Button(row, text="Exportar CSV", command=self.export_extractor_csv).pack(side=LEFT)
         right = self._panel(view)
         right.grid(row=0, column=1, sticky="nsew")
         right.rowconfigure(1, weight=1)
@@ -510,12 +507,6 @@ class ExplorerApp(tk.Tk):
                     "source": item.get("source", "web"),
                 })
         messagebox.showinfo("CSV exportado", f"Archivo guardado en {path}")
-
-    def open_extractor_html(self) -> None:
-        if not EXTRACTOR_HTML.exists():
-            messagebox.showerror("Falta HTML", f"No existe {EXTRACTOR_HTML}")
-            return
-        webbrowser.open(EXTRACTOR_HTML.as_uri())
 
     def add_selected_visible_chat(self) -> None:
         selection = self.visible_chat_list.curselection()
