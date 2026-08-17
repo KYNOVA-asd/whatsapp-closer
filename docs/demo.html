@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo · Cerrador de WhatsApp</title>
+<meta name="color-scheme" content="light dark">
+<style>
+  :root {
+    --bg: #f7f4ee;
+    --ink: #171814;
+    --muted: #65645c;
+    --line: #d8d2c4;
+    --panel: #fffdf8;
+    --panel-2: #eff6f1;
+    --accent: #286846;
+    --warn: #946217;
+    --bad: #a33f35;
+    --blue: #2d5f86;
+    --shadow: 0 16px 45px rgba(34, 30, 20, .12);
+    --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10120f;
+      --ink: #ece9df;
+      --muted: #a39d90;
+      --line: #302d27;
+      --panel: #181a16;
+      --panel-2: #142019;
+      --accent: #78c497;
+      --warn: #d6aa61;
+      --bad: #d5776d;
+      --blue: #8ec5ea;
+      --shadow: none;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      linear-gradient(135deg, rgba(40, 104, 70, .10), transparent 32rem),
+      radial-gradient(circle at 84% 12%, rgba(45, 95, 134, .14), transparent 24rem),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    line-height: 1.45;
+  }
+
+  button, input { font: inherit; }
+
+  .shell {
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 20px 0 28px;
+  }
+
+  header {
+    min-height: 88px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+  }
+
+  .brand img {
+    width: 48px;
+    height: 48px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(1.25rem, 3vw, 2.15rem);
+    line-height: 1.05;
+    letter-spacing: 0;
+  }
+
+  .tagline {
+    margin: 5px 0 0;
+    color: var(--muted);
+    font-size: .96rem;
+  }
+
+  .status {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 8px;
+    align-items: center;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: .77rem;
+    white-space: nowrap;
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  main {
+    display: grid;
+    grid-template-columns: 1.05fr .95fr;
+    gap: 18px;
+    padding-top: 18px;
+  }
+
+  .chat, .side {
+    min-width: 0;
+  }
+
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 6px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, .32);
+  }
+
+  .tab {
+    border: 0;
+    min-height: 36px;
+    padding: 0 12px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .tab[aria-selected="true"] {
+    background: var(--ink);
+    color: var(--bg);
+  }
+
+  .mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: .9rem;
+  }
+
+  .switch {
+    position: relative;
+    width: 48px;
+    height: 26px;
+  }
+
+  .switch input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+  }
+
+  .track {
+    position: absolute;
+    inset: 0;
+    border: 1px solid var(--line);
+    background: var(--panel);
+  }
+
+  .track::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 16px;
+    height: 16px;
+    background: var(--accent);
+    transition: transform .18s ease;
+  }
+
+  .switch input:checked + .track::after {
+    transform: translateX(22px);
+    background: var(--warn);
+  }
+
+  .phone {
+    min-height: 650px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    box-shadow: var(--shadow);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+
+  .phone-top {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .contact {
+    min-width: 0;
+  }
+
+  .contact strong {
+    display: block;
+    font-size: 1rem;
+  }
+
+  .contact span {
+    display: block;
+    color: var(--muted);
+    font-size: .84rem;
+    overflow-wrap: anywhere;
+  }
+
+  .badge {
+    align-self: start;
+    border: 1px solid var(--line);
+    padding: 4px 8px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: .74rem;
+  }
+
+  .messages {
+    padding: 18px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .bubble {
+    max-width: 82%;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    overflow-wrap: anywhere;
+  }
+
+  .in {
+    align-self: flex-start;
+    background: transparent;
+  }
+
+  .out {
+    align-self: flex-end;
+    background: var(--panel-2);
+  }
+
+  .pending {
+    border-color: var(--warn);
+  }
+
+  .sent {
+    border-color: var(--accent);
+  }
+
+  .foot {
+    border-top: 1px solid var(--line);
+    padding: 12px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+
+  .foot input {
+    min-width: 0;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink);
+    padding: 10px 11px;
+  }
+
+  .icon-button {
+    width: 42px;
+    border: 0;
+    background: var(--accent);
+    color: white;
+    cursor: pointer;
+    font-size: 1.1rem;
+  }
+
+  .panel {
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, .30);
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+
+  .panel h2 {
+    margin: 0 0 12px;
+    font-size: 1.05rem;
+    letter-spacing: 0;
+  }
+
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .metric {
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+
+  .metric b {
+    display: block;
+    font-size: 1.35rem;
+    line-height: 1;
+  }
+
+  .metric span {
+    color: var(--muted);
+    font-size: .78rem;
+  }
+
+  .steps {
+    display: grid;
+    gap: 8px;
+  }
+
+  .step {
+    display: grid;
+    grid-template-columns: 26px 1fr auto;
+    gap: 9px;
+    align-items: start;
+    border-top: 1px solid var(--line);
+    padding-top: 9px;
+  }
+
+  .num {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    background: var(--ink);
+    color: var(--bg);
+    font-family: var(--mono);
+    font-size: .78rem;
+  }
+
+  .step strong {
+    display: block;
+    font-size: .9rem;
+  }
+
+  .step small {
+    color: var(--muted);
+  }
+
+  .state {
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .state.warn { color: var(--warn); }
+  .state.ok { color: var(--accent); }
+  .state.bad { color: var(--bad); }
+
+  dl {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 118px 1fr;
+    gap: 10px;
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+
+  dt {
+    color: var(--muted);
+    font-size: .82rem;
+  }
+
+  dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .business {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .fit {
+    border-top: 1px solid var(--line);
+    padding-top: 9px;
+  }
+
+  .fit strong {
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  @media (max-width: 900px) {
+    header, main {
+      display: block;
+    }
+    .status {
+      margin-top: 14px;
+      grid-template-columns: repeat(2, auto);
+      justify-content: start;
+    }
+    .side {
+      margin-top: 16px;
+    }
+    .phone {
+      min-height: 560px;
+    }
+    .metric-grid, .business {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="brand">
+      <img src="../assets/hero-claro.svg" alt="">
+      <div>
+        <h1>Cerrador de WhatsApp</h1>
+        <p class="tagline">Demo local con proveedor demo, sin credenciales ni envios reales.</p>
+      </div>
+    </div>
+    <div class="status" aria-label="estado">
+      <span class="dot"></span><span>demo</span>
+      <span>modo borrador</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="chat" aria-label="simulador">
+      <div class="toolbar">
+        <div class="tabs" role="tablist" aria-label="casos">
+          <button class="tab" type="button" data-case="happy" aria-selected="true">Venta</button>
+          <button class="tab" type="button" data-case="angry" aria-selected="false">Escalacion</button>
+          <button class="tab" type="button" data-case="unknown" aria-selected="false">Fuera de catalogo</button>
+        </div>
+        <label class="mode">
+          <span>Borrador</span>
+          <span class="switch">
+            <input id="autoMode" type="checkbox">
+            <span class="track"></span>
+          </span>
+          <span>Automatico</span>
+        </label>
+      </div>
+
+      <div class="phone">
+        <div class="phone-top">
+          <div class="contact">
+            <strong id="contactName">Lead nuevo</strong>
+            <span id="contactMeta">5215500000000 · WhatsApp</span>
+          </div>
+          <span class="badge" id="stageBadge">calificado</span>
+        </div>
+        <div class="messages" id="messages"></div>
+        <div class="foot">
+          <input id="composer" aria-label="mensaje" value="Hola, vi el curso. Cuanto sale? Se me hace caro.">
+          <button class="icon-button" type="button" id="send" title="Enviar">›</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>Lectura del agente</h2>
+        <div class="metric-grid">
+          <div class="metric"><b id="score">62</b><span>score</span></div>
+          <div class="metric"><b id="temperature">tibio</b><span>temperatura</span></div>
+          <div class="metric"><b id="state">parcial</b><span>estado</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Pasos</h2>
+        <div class="steps" id="steps"></div>
+      </section>
+
+      <section class="panel">
+        <h2>CRM</h2>
+        <dl>
+          <div class="row"><dt>Etapa</dt><dd id="crmStage">calificado</dd></div>
+          <div class="row"><dt>Resumen</dt><dd id="crmSummary"></dd></div>
+          <div class="row"><dt>Proximo paso</dt><dd id="crmNext"></dd></div>
+        </dl>
+      </section>
+
+      <section class="panel">
+        <h2>Para tu negocio</h2>
+        <div class="business">
+          <div class="fit"><strong>Sirve si</strong><span>Te llegan leads por WhatsApp y pierdes ventas por tardar, repetir objeciones o no agendar.</span></div>
+          <div class="fit"><strong>Necesita</strong><span>Catalogo con precios, horarios reales, reglas de escalacion y acceso a calendario/CRM.</span></div>
+          <div class="fit"><strong>Primera prueba</strong><span>Se corre en demo: no toca WhatsApp, Google Calendar ni Supabase.</span></div>
+          <div class="fit"><strong>Salida segura</strong><span>Por defecto queda en borrador: redacta y espera aprobacion.</span></div>
+        </div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<script>
+const stepsText = {
+  1: "Recibe el mensaje y trae contexto",
+  2: "Detecta intencion y califica",
+  3: "Redacta respuesta y horarios",
+  4: "Agenda y confirma",
+  5: "Escribe CRM",
+  6: "Pasa a humano cuando corresponde"
+};
+
+const cases = {
+  happy: {
+    contactName: "Lead nuevo",
+    contactMeta: "5215500000000 · WhatsApp",
+    stage: "calificado",
+    input: "Hola, vi el curso. Cuanto sale? Se me hace caro.",
+    response: "El curso sale 12000 MXN y se puede pagar en tres partes. Te puedo ofrecer hoy 11:00, hoy 17:00 o mañana 10:00.",
+    score: 62,
+    temp: "tibio",
+    state: "parcial",
+    crmStage: "calificado",
+    crmSummary: "Pregunto precio y puso una objecion de costo. Se respondio desde el playbook y se ofrecieron tres horarios.",
+    crmNext: "Confirmar horario",
+    handoff: null,
+    steps: [
+      ["hecho", ""],
+      ["hecho", ""],
+      ["sin-confirmar", "modo borrador"],
+      ["sin-confirmar", "no hay horario elegido"],
+      ["sin-confirmar", "modo borrador"],
+      ["salteado", "sin escalacion"]
+    ]
+  },
+  angry: {
+    contactName: "Lead molesto",
+    contactMeta: "5215500000001 · WhatsApp",
+    stage: "escalado",
+    input: "Ya van tres veces que pregunto lo mismo, son una estafa.",
+    response: "Te paso con una persona del equipo para revisar esto bien.",
+    score: 28,
+    temp: "frio",
+    state: "escalado",
+    crmStage: "escalado",
+    crmSummary: "El contacto mostro enojo y pidio resolucion. La conversacion se retiro del flujo comercial.",
+    crmNext: "Responder manualmente desde el equipo",
+    handoff: "enojo",
+    steps: [
+      ["hecho", ""],
+      ["hecho", ""],
+      ["salteado", "hay escalacion"],
+      ["salteado", "hay escalacion"],
+      ["sin-confirmar", "modo borrador"],
+      ["hecho", "aviso interno"]
+    ]
+  },
+  unknown: {
+    contactName: "Lead con pedido nuevo",
+    contactMeta: "bsu_01HZK3M9QX7T2VW4 · WhatsApp",
+    stage: "pendiente",
+    input: "Tambien venden el curso de trading? Me interesa mas ese.",
+    response: "Ese producto no esta en mi catalogo. Lo dejo anotado para que una persona del equipo lo revise.",
+    score: 41,
+    temp: "tibio",
+    state: "parcial",
+    crmStage: "pendiente",
+    crmSummary: "Pidio algo fuera del catalogo. No se invento precio ni promesa comercial.",
+    crmNext: "Completar catalogo o responder manualmente",
+    handoff: "fuera de catalogo",
+    steps: [
+      ["hecho", ""],
+      ["hecho", ""],
+      ["sin-confirmar", "fuera del playbook"],
+      ["salteado", "sin horario"],
+      ["sin-confirmar", "modo borrador"],
+      ["hecho", "queda para humano"]
+    ]
+  }
+};
+
+const messages = document.querySelector("#messages");
+const tabs = document.querySelectorAll(".tab");
+const autoMode = document.querySelector("#autoMode");
+const composer = document.querySelector("#composer");
+let active = "happy";
+
+function stateClass(state) {
+  if (state === "hecho") return "ok";
+  if (state === "salteado") return "bad";
+  return "warn";
+}
+
+function draw() {
+  const item = cases[active];
+  const automatic = autoMode.checked;
+  document.querySelector("#contactName").textContent = item.contactName;
+  document.querySelector("#contactMeta").textContent = item.contactMeta;
+  document.querySelector("#stageBadge").textContent = item.stage;
+  document.querySelector("#score").textContent = item.score;
+  document.querySelector("#temperature").textContent = item.temp;
+  document.querySelector("#state").textContent = item.state;
+  document.querySelector("#crmStage").textContent = item.crmStage;
+  document.querySelector("#crmSummary").textContent = item.crmSummary;
+  document.querySelector("#crmNext").textContent = item.crmNext;
+  composer.value = item.input;
+
+  const sentLabel = automatic ? "enviado" : "borrador";
+  const bubbleClass = automatic ? "sent" : "pending";
+  messages.innerHTML = `
+    <div class="bubble in">${item.input}</div>
+    <div class="bubble out ${bubbleClass}">${item.response}<br><small>${sentLabel}</small></div>
+  `;
+
+  document.querySelector("#steps").innerHTML = item.steps.map((step, index) => {
+    let state = step[0];
+    let reason = step[1];
+    if (automatic && state === "sin-confirmar") {
+      state = active === "happy" && index === 3 ? "sin-confirmar" : "hecho";
+      reason = active === "happy" && index === 3 ? "falta horario elegido" : "confirmado";
+    }
+    return `
+      <div class="step">
+        <span class="num">${index + 1}</span>
+        <span><strong>${stepsText[index + 1]}</strong><small>${reason || "listo"}</small></span>
+        <span class="state ${stateClass(state)}">${state}</span>
+      </div>
+    `;
+  }).join("");
+}
+
+tabs.forEach(tab => {
+  tab.addEventListener("click", () => {
+    active = tab.dataset.case;
+    tabs.forEach(t => t.setAttribute("aria-selected", String(t === tab)));
+    draw();
+  });
+});
+
+autoMode.addEventListener("change", draw);
+document.querySelector("#send").addEventListener("click", () => {
+  messages.insertAdjacentHTML("beforeend", `<div class="bubble in">${composer.value}</div>`);
+});
+
+draw();
+</script>
+</body>
+</html>
