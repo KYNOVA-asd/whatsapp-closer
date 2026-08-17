@@ -222,18 +222,13 @@ class ExplorerApp(tk.Tk):
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         left.rowconfigure(4, weight=1)
         left.columnconfigure(0, weight=1)
-        ttk.Label(left, text="Extractor de afiliados / grupo autorizado", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(left, text="Lista chats visibles o importa un TXT exportado de WhatsApp para detectar participantes.", style="PanelMuted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 10))
+        ttk.Label(left, text="Extractor de numeros desde TXT -> Tabla + CSV", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(left, text="Sube tu archivo .txt", style="PanelMuted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 10))
 
         controls = ttk.Frame(left, style="Panel.TFrame")
         controls.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        ttk.Button(controls, text="Listar chats visibles", style="Accent.TButton", command=self.load_visible_chats).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(controls, text="Importar TXT", style="Gold.TButton", command=self.import_whatsapp_txt).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(controls, text="Agregar a CRM", command=self.add_selected_visible_chat).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(controls, text="Descargar CSV", command=self.export_extractor_csv).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(controls, text="Copiar columna", command=self.copy_extractor_column).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(controls, text="Limpiar", style="Danger.TButton", command=self.clear_extractor).pack(side=LEFT, padx=(0, 12))
-        ttk.Label(controls, text="Formato", style="PanelMuted.TLabel").pack(side=LEFT, padx=(0, 6))
+        ttk.Button(controls, text="Seleccionar archivo", style="Accent.TButton", command=self.import_whatsapp_txt).pack(side=LEFT, padx=(0, 18))
+        ttk.Label(controls, text="Formato de salida", style="PanelMuted.TLabel").pack(side=LEFT, padx=(0, 6))
         self.extract_format_var = tk.StringVar(value="E164")
         format_box = ttk.Combobox(
             controls,
@@ -242,8 +237,11 @@ class ExplorerApp(tk.Tk):
             width=8,
             state="readonly",
         )
-        format_box.pack(side=LEFT)
+        format_box.pack(side=LEFT, padx=(0, 8))
         format_box.bind("<<ComboboxSelected>>", lambda _event: self.rebuild_extractor_numbers())
+        ttk.Button(controls, text="Descargar CSV", command=self.export_extractor_csv).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(controls, text="Copiar columna", command=self.copy_extractor_column).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(controls, text="Limpiar", style="Danger.TButton", command=self.clear_extractor).pack(side=LEFT)
 
         metrics = ttk.Frame(left, style="Panel.TFrame")
         metrics.grid(row=3, column=0, sticky="ew", pady=(0, 10))
@@ -253,8 +251,8 @@ class ExplorerApp(tk.Tk):
         self.extract_phones_var = tk.StringVar(value="0")
         for label, var in [
             ("Archivo", self.extract_file_var),
-            ("Candidatos", self.extract_candidates_var),
-            ("Participantes", self.extract_unique_var),
+            ("Candidatos detectados", self.extract_candidates_var),
+            ("Unicos validos", self.extract_unique_var),
             ("Telefonos", self.extract_phones_var),
         ]:
             box = ttk.Frame(metrics, style="Band.TFrame", padding=10)
@@ -262,14 +260,12 @@ class ExplorerApp(tk.Tk):
             ttk.Label(box, textvariable=var, style="Metric.TLabel").pack(anchor=W)
             ttk.Label(box, text=label, style="MetricSmall.TLabel").pack(anchor=W)
 
-        columns = ("title", "phone", "messages", "last_at", "last_text")
+        columns = ("idx", "phone", "raw")
         self.visible_chat_list = ttk.Treeview(left, columns=columns, show="headings", selectmode="browse")
         for col, label, width in [
-            ("title", "# / participante", 170),
-            ("phone", "Numero final", 150),
-            ("messages", "Msgs", 70),
-            ("last_at", "Ultimo", 130),
-            ("last_text", "Detectado raw / contexto", 360),
+            ("idx", "#", 70),
+            ("phone", "Numero final", 220),
+            ("raw", "Detectado raw", 560),
         ]:
             self.visible_chat_list.heading(col, text=label)
             self.visible_chat_list.column(col, width=width, anchor=W)
@@ -278,7 +274,7 @@ class ExplorerApp(tk.Tk):
         right.grid(row=0, column=1, sticky="nsew")
         right.rowconfigure(1, weight=1)
         right.columnconfigure(0, weight=1)
-        ttk.Label(right, text="Detalle extraido", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(right, text="Debug", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
         self.extract_detail = tk.Text(right, wrap="word", bd=0, bg=PANEL, fg=INK, padx=12, pady=12)
         self.extract_detail.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
         return view
@@ -443,17 +439,6 @@ class ExplorerApp(tk.Tk):
             self.queue.delete(idx)
             self.queue.insert(idx, value.replace("REVISION", "SIMULADO", 1))
 
-    def load_visible_chats(self) -> None:
-        try:
-            result = self._run_bridge("list")
-        except RuntimeError as exc:
-            messagebox.showerror("No pude listar chats", str(exc))
-            return
-        self.visible_chats = result.get("data", {}).get("chats", [])
-        self._render_extractor_rows(self.visible_chats, source="web")
-        self.extract_detail.delete("1.0", END)
-        self.extract_detail.insert(END, json.dumps(self.visible_chats[:12], ensure_ascii=False, indent=2))
-
     def import_whatsapp_txt(self) -> None:
         path = filedialog.askopenfilename(
             title="Importar chat exportado de WhatsApp",
@@ -466,7 +451,6 @@ class ExplorerApp(tk.Tk):
         candidates = self._extract_candidates(text)
         self.extract_candidates_cache = candidates
         numbers = self._numbers_from_candidates(candidates)
-        participants = self._parse_whatsapp_txt(text)
         self.visible_chats = numbers
         self._render_extractor_rows(numbers, source="txt")
         self.extract_file_var.set(Path(path).name[:18])
@@ -477,9 +461,7 @@ class ExplorerApp(tk.Tk):
         self.extract_detail.insert(
             END,
             "Debug (primeros 20 candidatos detectados):\n"
-            + ("\n".join(candidates[:20]) or "-")
-            + "\n\nParticipantes detectados por mensaje:\n"
-            + json.dumps(participants[:30], ensure_ascii=False, indent=2),
+            + ("\n".join(candidates[:20]) or "-"),
         )
 
     def rebuild_extractor_numbers(self) -> None:
@@ -502,20 +484,16 @@ class ExplorerApp(tk.Tk):
             if source == "txt":
                 title = str(idx + 1)
                 phone = item.get("final", "")
-                messages = ""
-                last_at = ""
                 context = item.get("raw", "")
             else:
                 title = item.get("title") or "sin titulo"
                 phone = item.get("phone") or ""
-                messages = item.get("messages") or ""
-                last_at = item.get("last_at") or ""
                 context = " ".join((item.get("last_text") or item.get("text") or "").split())
             self.visible_chat_list.insert(
                 "",
                 END,
                 iid=str(idx),
-                values=(title, phone, messages, last_at, context[:220]),
+                values=(title, phone, context[:260]),
             )
 
     def _extract_candidates(self, text: str) -> list[str]:
@@ -529,40 +507,6 @@ class ExplorerApp(tk.Tk):
                 continue
             seen.setdefault(final, {"final": final, "phone": final, "raw": raw, "source": "txt"})
         return list(seen.values())
-
-    def _parse_whatsapp_txt(self, text: str) -> list[dict]:
-        pattern = re.compile(
-            r"^(\d{1,2}/\d{1,2}/\d{2,4}),\s+(.+?)\s+-\s+([^:\n]+):\s*(.*)$",
-            re.MULTILINE,
-        )
-        people: dict[str, dict] = {}
-        for match in pattern.finditer(text):
-            date, time_text, sender, body = match.groups()
-            sender = sender.strip().lstrip("\u200e").strip()
-            if not sender:
-                continue
-            record = people.setdefault(
-                sender,
-                {
-                    "title": sender,
-                    "phone": self._extract_phone(sender),
-                    "messages": 0,
-                    "last_at": "",
-                    "last_text": "",
-                    "source": "txt",
-                },
-            )
-            record["messages"] += 1
-            record["last_at"] = f"{date} {time_text}"
-            record["last_text"] = " ".join(body.strip().split())
-        return sorted(people.values(), key=lambda item: item["messages"], reverse=True)
-
-    def _extract_phone(self, value: str) -> str:
-        for raw in self._extract_candidates(value or ""):
-            final = self._normalize_phone(raw)
-            if final:
-                return final
-        return ""
 
     def _normalize_phone(self, raw: str) -> str:
         digits = re.sub(r"\D", "", raw)
@@ -628,19 +572,6 @@ class ExplorerApp(tk.Tk):
         self.extract_phones_var.set("0")
         self.extract_detail.delete("1.0", END)
         self.extract_detail.insert(END, "-")
-
-    def add_selected_visible_chat(self) -> None:
-        selection = self.visible_chat_list.selection()
-        if not selection:
-            messagebox.showwarning("Sin chat", "Selecciona un chat visible primero.")
-            return
-        chat = self.visible_chats[int(selection[0])]
-        title = chat.get("title") or chat.get("final") or chat.get("phone") or "Contacto extraido"
-        contact = chat.get("final") or chat.get("phone") or title
-        text = " ".join((chat.get("last_text") or chat.get("text") or "").split())
-        self.leads.append(Lead(title, contact, "afiliado", text[:240], "Seguimiento de grupo autorizado", 0))
-        self.selected_index = len(self.leads) - 1
-        self.refresh_tree()
 
     def read_selected_chat(self) -> None:
         lead = self.current_lead()
