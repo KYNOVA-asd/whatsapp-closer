@@ -52,7 +52,7 @@ class ExplorerApp(tk.Tk):
         self.leads: list[Lead] = []
         self.selected_index: int | None = None
         self.visible_chats: list[dict] = []
-        self.extract_candidates_cache: list[str] = []
+        self.extract_candidates_cache: list[dict] = []
         self.view_buttons: dict[str, ttk.Button] = {}
 
         self._configure_style()
@@ -260,12 +260,14 @@ class ExplorerApp(tk.Tk):
             ttk.Label(box, textvariable=var, style="Metric.TLabel").pack(anchor=W)
             ttk.Label(box, text=label, style="MetricSmall.TLabel").pack(anchor=W)
 
-        columns = ("idx", "phone", "raw")
+        columns = ("idx", "phone", "sender", "raw", "reason")
         self.visible_chat_list = ttk.Treeview(left, columns=columns, show="headings", selectmode="browse")
         for col, label, width in [
             ("idx", "#", 70),
             ("phone", "Numero final", 220),
-            ("raw", "Detectado raw", 560),
+            ("sender", "Remitente", 220),
+            ("raw", "Detectado raw", 360),
+            ("reason", "Filtro", 170),
         ]:
             self.visible_chat_list.heading(col, text=label)
             self.visible_chat_list.column(col, width=width, anchor=W)
@@ -461,7 +463,7 @@ class ExplorerApp(tk.Tk):
         self.extract_detail.insert(
             END,
             "Debug (primeros 20 candidatos detectados):\n"
-            + ("\n".join(candidates[:20]) or "-"),
+            + ("\n".join(f"{c['raw']} | {c['sender'] or 'sin remitente'} | {c['field']} | {c['reason']}" for c in candidates[:20]) or "-"),
         )
 
     def rebuild_extractor_numbers(self) -> None:
@@ -484,28 +486,96 @@ class ExplorerApp(tk.Tk):
             if source == "txt":
                 title = str(idx + 1)
                 phone = item.get("final", "")
+                sender = item.get("sender", "")
                 context = item.get("raw", "")
+                reason = item.get("reason", "")
             else:
                 title = item.get("title") or "sin titulo"
                 phone = item.get("phone") or ""
+                sender = item.get("sender", "")
                 context = " ".join((item.get("last_text") or item.get("text") or "").split())
+                reason = ""
             self.visible_chat_list.insert(
                 "",
                 END,
                 iid=str(idx),
-                values=(title, phone, context[:260]),
+                values=(title, phone, sender[:80], context[:220], reason[:80]),
             )
 
-    def _extract_candidates(self, text: str) -> list[str]:
-        return re.findall(r"\+?\d[\d\s().-]{6,}\d", text or "")
+    def _extract_candidates(self, text: str) -> list[dict]:
+        candidates: list[dict] = []
+        line_pattern = re.compile(
+            r"^(\d{1,2}/\d{1,2}/\d{2,4}),\s+(.+?)\s+-\s+([^:\n]+):\s*(.*)$"
+        )
+        for line_no, line in enumerate((text or "").splitlines(), start=1):
+            clean_line = line.lstrip("\ufeff\u200e").strip()
+            match = line_pattern.match(clean_line)
+            if match:
+                date, time_text, sender, body = match.groups()
+                sender = sender.strip().lstrip("\u200e").strip()
+                at = f"{date} {time_text}"
+                fields = [("mensaje", body), ("remitente", sender)]
+            else:
+                sender = ""
+                at = ""
+                fields = [("linea", clean_line)]
+            for field, source in fields:
+                for raw in re.findall(r"\+?\d[\d\s().-]{6,}\d", source):
+                    reason = self._candidate_reason(raw, source, sender, field)
+                    candidates.append(
+                        {
+                            "raw": raw,
+                            "sender": sender,
+                            "line": line_no,
+                            "at": at,
+                            "field": field,
+                            "context": source[:240],
+                            "valid": reason == "valido",
+                            "reason": reason,
+                        }
+                    )
+        return candidates
 
-    def _numbers_from_candidates(self, candidates: list[str]) -> list[dict]:
+    def _candidate_reason(self, raw: str, context: str, sender: str, field: str) -> str:
+        digits = re.sub(r"\D", "", raw)
+        lowered = context.lower()
+        if any(token in lowered for token in ["http://", "https://", "docs.google", "facebook.com", "youtube", "youtu.be", "spotify"]):
+            return "descartado: link/id"
+        if re.search(r"\d+\.\d+", raw):
+            return "descartado: decimal/coordenada"
+        if len(digits) not in {10, 12, 13}:
+            return "descartado: longitud"
+        if len(digits) == 12 and not digits.startswith("52"):
+            return "descartado: pais no MX"
+        if len(digits) == 13 and not digits.startswith("521"):
+            return "descartado: pais no MX"
+        if field != "remitente" and not sender and not raw.strip().startswith("+"):
+            return "descartado: sin remitente"
+        return "valido"
+
+    def _numbers_from_candidates(self, candidates: list[dict]) -> list[dict]:
         seen: dict[str, dict] = {}
-        for raw in candidates:
+        for candidate in candidates:
+            if not candidate.get("valid"):
+                continue
+            raw = candidate["raw"]
             final = self._normalize_phone(raw)
             if not final:
                 continue
-            seen.setdefault(final, {"final": final, "phone": final, "raw": raw, "source": "txt"})
+            seen.setdefault(
+                final,
+                {
+                    "final": final,
+                    "phone": final,
+                    "raw": raw,
+                    "sender": candidate.get("sender", ""),
+                    "line": candidate.get("line", ""),
+                    "at": candidate.get("at", ""),
+                    "field": candidate.get("field", ""),
+                    "reason": candidate.get("reason", ""),
+                    "source": "txt",
+                },
+            )
         return list(seen.values())
 
     def _normalize_phone(self, raw: str) -> str:
@@ -527,7 +597,7 @@ class ExplorerApp(tk.Tk):
 
     def export_extractor_csv(self) -> None:
         if not self.visible_chats:
-            messagebox.showwarning("Sin datos", "Primero lista chats o importa un TXT.")
+            messagebox.showwarning("Sin datos", "Primero importa un TXT.")
             return
         path = filedialog.asksaveasfilename(
             title="Guardar afiliados CSV",
@@ -538,17 +608,18 @@ class ExplorerApp(tk.Tk):
         if not path:
             return
         with open(path, "w", newline="", encoding="utf-8-sig") as handle:
-            writer = csv.DictWriter(handle, fieldnames=["phone", "raw", "title", "messages", "last_at", "last_text", "source"])
+            writer = csv.DictWriter(handle, fieldnames=["phone", "raw", "sender", "line", "at", "field", "reason", "source"])
             writer.writeheader()
             for item in self.visible_chats:
                 writer.writerow({
                     "phone": item.get("final") or item.get("phone", ""),
                     "raw": item.get("raw", ""),
-                    "title": item.get("title", ""),
-                    "messages": item.get("messages", ""),
-                    "last_at": item.get("last_at", ""),
-                    "last_text": item.get("last_text") or item.get("text", ""),
-                    "source": item.get("source", "web"),
+                    "sender": item.get("sender", ""),
+                    "line": item.get("line", ""),
+                    "at": item.get("at", ""),
+                    "field": item.get("field", ""),
+                    "reason": item.get("reason", ""),
+                    "source": item.get("source", "txt"),
                 })
         messagebox.showinfo("CSV exportado", f"Archivo guardado en {path}")
 
