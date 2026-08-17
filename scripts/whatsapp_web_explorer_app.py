@@ -106,7 +106,7 @@ class ExplorerApp(tk.Tk):
         actions = ttk.Frame(header)
         actions.pack(side=tk.RIGHT)
         ttk.Button(actions, text="Abrir WhatsApp Web", style="Accent.TButton", command=self.open_edge).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(actions, text="Refrescar demo", command=self.load_demo).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(actions, text="⟳", width=3, command=self.load_demo).pack(side=LEFT, padx=(0, 8))
         ttk.Button(actions, text="Guardar", style="Gold.TButton", command=self.save_leads).pack(side=LEFT)
 
         nav = ttk.Frame(root)
