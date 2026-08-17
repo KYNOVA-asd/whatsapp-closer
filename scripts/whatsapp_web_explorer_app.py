@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import subprocess
 import sys
+import webbrowser
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from tkinter import BOTH, END, LEFT, W, X, filedialog, messagebox
@@ -20,6 +22,7 @@ LEADS_FILE = LOCAL_DIR / "leads.json"
 CONFIG_FILE = LOCAL_DIR / "config.json"
 EDGE_SCRIPT = ROOT / "scripts" / "abrir_whatsapp_web_edge.ps1"
 BRIDGE_SCRIPT = ROOT / "scripts" / "whatsapp_web_bridge.py"
+EXTRACTOR_HTML = ROOT / "docs" / "extractor-afiliados.html"
 
 BG = "#eeeae3"
 GREEN = "#355244"
@@ -221,13 +224,16 @@ class ExplorerApp(tk.Tk):
         left.rowconfigure(2, weight=1)
         left.columnconfigure(0, weight=1)
         ttk.Label(left, text="Extractor de afiliados / grupo autorizado", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(left, text="Lista chats visibles, quien mando mensaje y actividad reciente.", style="PanelMuted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 10))
+        ttk.Label(left, text="Lista chats visibles o importa un TXT exportado de WhatsApp para detectar participantes.", style="PanelMuted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 10))
         self.visible_chat_list = tk.Listbox(left, bd=0, bg="#f4efe6", fg=INK, highlightthickness=1, highlightcolor=GOLD)
         self.visible_chat_list.grid(row=2, column=0, sticky="nsew")
         row = ttk.Frame(left, style="Panel.TFrame")
         row.grid(row=3, column=0, sticky="ew", pady=(10, 0))
         ttk.Button(row, text="Listar chats visibles", style="Accent.TButton", command=self.load_visible_chats).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(row, text="Agregar a CRM", style="Gold.TButton", command=self.add_selected_visible_chat).pack(side=LEFT)
+        ttk.Button(row, text="Importar TXT", style="Gold.TButton", command=self.import_whatsapp_txt).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(row, text="Agregar a CRM", command=self.add_selected_visible_chat).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(row, text="Exportar CSV", command=self.export_extractor_csv).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(row, text="Abrir HTML", command=self.open_extractor_html).pack(side=LEFT)
         right = self._panel(view)
         right.grid(row=0, column=1, sticky="nsew")
         right.rowconfigure(1, weight=1)
@@ -413,6 +419,104 @@ class ExplorerApp(tk.Tk):
         self.extract_detail.delete("1.0", END)
         self.extract_detail.insert(END, json.dumps(self.visible_chats[:12], ensure_ascii=False, indent=2))
 
+    def import_whatsapp_txt(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Importar chat exportado de WhatsApp",
+            initialdir=str(Path.home() / "Downloads"),
+            filetypes=[("WhatsApp TXT", "*.txt"), ("Todos", "*.*")],
+        )
+        if not path:
+            return
+        text = Path(path).read_text(encoding="utf-8-sig", errors="replace")
+        participants = self._parse_whatsapp_txt(text)
+        self.visible_chats = participants
+        self.visible_chat_list.delete(0, END)
+        for item in participants:
+            phone = f" · {item['phone']}" if item.get("phone") else ""
+            self.visible_chat_list.insert(
+                END,
+                f"{item['title']}{phone} | {item['messages']} msg | ultimo: {item['last_text'][:95]}",
+            )
+        self.extract_detail.delete("1.0", END)
+        self.extract_detail.insert(
+            END,
+            f"Archivo: {path}\nParticipantes detectados: {len(participants)}\n\n"
+            + json.dumps(participants[:30], ensure_ascii=False, indent=2),
+        )
+
+    def _parse_whatsapp_txt(self, text: str) -> list[dict]:
+        pattern = re.compile(
+            r"^(\d{1,2}/\d{1,2}/\d{2,4}),\s+(.+?)\s+-\s+([^:\n]+):\s*(.*)$",
+            re.MULTILINE,
+        )
+        people: dict[str, dict] = {}
+        for match in pattern.finditer(text):
+            date, time_text, sender, body = match.groups()
+            sender = sender.strip().lstrip("\u200e").strip()
+            if not sender:
+                continue
+            record = people.setdefault(
+                sender,
+                {
+                    "title": sender,
+                    "phone": self._extract_phone(sender),
+                    "messages": 0,
+                    "last_at": "",
+                    "last_text": "",
+                    "source": "txt",
+                },
+            )
+            record["messages"] += 1
+            record["last_at"] = f"{date} {time_text}"
+            record["last_text"] = " ".join(body.strip().split())
+        return sorted(people.values(), key=lambda item: item["messages"], reverse=True)
+
+    def _extract_phone(self, value: str) -> str:
+        candidates = re.findall(r"\+?\d[\d\s().-]{6,}\d", value or "")
+        for raw in candidates:
+            digits = re.sub(r"\D", "", raw)
+            if len(digits) == 13 and digits.startswith("521"):
+                return "+52" + digits[3:]
+            if len(digits) == 12 and digits.startswith("52"):
+                return "+52" + digits[2:]
+            if len(digits) == 10:
+                return "+52" + digits
+            if len(digits) > 10:
+                return "+52" + digits[-10:]
+        return ""
+
+    def export_extractor_csv(self) -> None:
+        if not self.visible_chats:
+            messagebox.showwarning("Sin datos", "Primero lista chats o importa un TXT.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Guardar afiliados CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv")],
+            initialfile="afiliados_extraidos.csv",
+        )
+        if not path:
+            return
+        with open(path, "w", newline="", encoding="utf-8-sig") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["title", "phone", "messages", "last_at", "last_text", "source"])
+            writer.writeheader()
+            for item in self.visible_chats:
+                writer.writerow({
+                    "title": item.get("title", ""),
+                    "phone": item.get("phone", ""),
+                    "messages": item.get("messages", ""),
+                    "last_at": item.get("last_at", ""),
+                    "last_text": item.get("last_text") or item.get("text", ""),
+                    "source": item.get("source", "web"),
+                })
+        messagebox.showinfo("CSV exportado", f"Archivo guardado en {path}")
+
+    def open_extractor_html(self) -> None:
+        if not EXTRACTOR_HTML.exists():
+            messagebox.showerror("Falta HTML", f"No existe {EXTRACTOR_HTML}")
+            return
+        webbrowser.open(EXTRACTOR_HTML.as_uri())
+
     def add_selected_visible_chat(self) -> None:
         selection = self.visible_chat_list.curselection()
         if not selection:
@@ -420,8 +524,9 @@ class ExplorerApp(tk.Tk):
             return
         chat = self.visible_chats[selection[0]]
         title = chat.get("title") or "Chat visible"
-        text = " ".join((chat.get("text") or "").split())
-        self.leads.append(Lead(title, title, "afiliado", text[:240], "Seguimiento de grupo autorizado", 0))
+        contact = chat.get("phone") or title
+        text = " ".join((chat.get("last_text") or chat.get("text") or "").split())
+        self.leads.append(Lead(title, contact, "afiliado", text[:240], "Seguimiento de grupo autorizado", 0))
         self.selected_index = len(self.leads) - 1
         self.refresh_tree()
 

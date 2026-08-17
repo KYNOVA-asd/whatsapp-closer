@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extractor de afiliados · WhatsApp TXT</title>
+<style>
+  :root{
+    --bg:#eeeae3;
+    --green:#355244;
+    --gold:#cfc47c;
+    --panel:#fbf8f0;
+    --ink:#111;
+    --muted:#5f615b;
+    --white:#fff;
+    --red:#9f2d2d;
+    --line:#d8d1c4;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:Segoe UI,system-ui,-apple-system,sans-serif}
+  .wrap{width:min(1180px,calc(100% - 32px));margin:24px auto}
+  header{display:flex;justify-content:space-between;gap:16px;align-items:end;margin-bottom:16px}
+  h1{margin:0;font-size:28px}
+  p{margin:6px 0 0;color:var(--muted)}
+  .card{background:var(--panel);padding:18px;border:1px solid var(--line)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+  input,select{background:var(--white);border:1px solid var(--line);padding:10px 12px;color:var(--ink)}
+  button{border:0;padding:11px 14px;background:var(--green);color:var(--white);font-weight:700;cursor:pointer}
+  button.secondary{background:var(--gold);color:var(--ink)}
+  button.danger{background:var(--red);color:var(--white)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .metrics{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px;margin:16px 0}
+  .metric{background:var(--green);color:var(--white);padding:14px}
+  .metric b{display:block;font-size:24px}
+  .metric span{color:#dce5dd;font-size:12px}
+  table{width:100%;border-collapse:collapse;background:var(--panel)}
+  th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{background:#ddd7cb;font-size:12px}
+  tr:hover{background:#f4efe6}
+  pre{background:#f4efe6;border:1px solid var(--line);padding:12px;max-height:220px;overflow:auto}
+  @media(max-width:800px){header,.row{display:block}.metrics{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Extractor de afiliados</h1>
+      <p>Importa un TXT exportado de WhatsApp, detecta participantes, actividad y telefonos cuando el remitente los trae.</p>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="row">
+      <div style="min-width:280px;flex:1">
+        <label>Archivo .txt de WhatsApp</label>
+        <input id="file" type="file" accept=".txt">
+      </div>
+      <button id="csv" class="secondary" disabled>Descargar CSV</button>
+      <button id="copy" class="secondary" disabled>Copiar tabla</button>
+      <button id="clear" class="danger">Limpiar</button>
+    </div>
+
+    <div class="metrics">
+      <div class="metric"><b id="participants">0</b><span>participantes</span></div>
+      <div class="metric"><b id="messages">0</b><span>mensajes</span></div>
+      <div class="metric"><b id="phones">0</b><span>telefonos</span></div>
+      <div class="metric"><b id="fileName">-</b><span>archivo</span></div>
+    </div>
+
+    <table>
+      <thead><tr><th>#</th><th>Participante</th><th>Telefono</th><th>Mensajes</th><th>Ultimo mensaje</th></tr></thead>
+      <tbody id="tbody"><tr><td colspan="5">Sube un TXT para comenzar.</td></tr></tbody>
+    </table>
+
+    <p>Debug</p>
+    <pre id="debug">-</pre>
+  </section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let rows = [];
+
+function phoneFrom(value){
+  const matches = String(value || '').match(/\+?\d[\d\s().-]{6,}\d/g) || [];
+  for (const raw of matches) {
+    const digits = raw.replace(/\D/g,'');
+    if (digits.length === 13 && digits.startsWith('521')) return '+52' + digits.slice(3);
+    if (digits.length === 12 && digits.startsWith('52')) return '+52' + digits.slice(2);
+    if (digits.length === 10) return '+52' + digits;
+  }
+  return '';
+}
+
+function parse(text){
+  const re = /^(\d{1,2}\/\d{1,2}\/\d{2,4}),\s+(.+?)\s+-\s+([^:\n]+):\s*(.*)$/gm;
+  const people = new Map();
+  let total = 0;
+  for (const match of text.matchAll(re)) {
+    total += 1;
+    const [, date, time, senderRaw, bodyRaw] = match;
+    const sender = senderRaw.replace(/^\u200e/,'').trim();
+    if (!sender) continue;
+    const item = people.get(sender) || { title: sender, phone: phoneFrom(sender), messages: 0, lastAt: '', lastText: '' };
+    item.messages += 1;
+    item.lastAt = `${date} ${time}`;
+    item.lastText = bodyRaw.trim().replace(/\s+/g,' ');
+    people.set(sender, item);
+  }
+  rows = [...people.values()].sort((a,b)=>b.messages-a.messages);
+  return total;
+}
+
+function escapeHtml(value){
+  return String(value).replace(/[&<>"']/g, (m)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+}
+
+function render(total){
+  $('participants').textContent = rows.length;
+  $('messages').textContent = total;
+  $('phones').textContent = rows.filter(x=>x.phone).length;
+  $('csv').disabled = rows.length === 0;
+  $('copy').disabled = rows.length === 0;
+  $('tbody').innerHTML = rows.length ? rows.map((x,i)=>`
+    <tr>
+      <td>${i+1}</td>
+      <td><b>${escapeHtml(x.title)}</b><br><small>${escapeHtml(x.lastAt)}</small></td>
+      <td>${escapeHtml(x.phone || '-')}</td>
+      <td>${x.messages}</td>
+      <td>${escapeHtml(x.lastText || '-')}</td>
+    </tr>
+  `).join('') : '<tr><td colspan="5">No se detectaron participantes.</td></tr>';
+  $('debug').textContent = JSON.stringify(rows.slice(0,20), null, 2);
+}
+
+$('file').addEventListener('change', async () => {
+  const file = $('file').files?.[0];
+  $('fileName').textContent = file ? file.name.slice(0,18) : '-';
+  if (!file) return;
+  const total = parse(await file.text());
+  render(total);
+});
+
+$('csv').addEventListener('click', () => {
+  const lines = ['title,phone,messages,lastAt,lastText'];
+  for (const row of rows) lines.push([row.title,row.phone,row.messages,row.lastAt,row.lastText].map(x=>`"${String(x).replace(/"/g,'""')}"`).join(','));
+  const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'afiliados_extraidos.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+$('copy').addEventListener('click', async () => {
+  await navigator.clipboard.writeText(rows.map(x=>`${x.title}\t${x.phone}\t${x.messages}`).join('\n'));
+});
+
+$('clear').addEventListener('click', () => {
+  rows = [];
+  $('file').value = '';
+  $('fileName').textContent = '-';
+  render(0);
+});
+</script>
+</body>
+</html>
