@@ -55,6 +55,7 @@ class ExplorerApp(tk.Tk):
         self.visible_chats: list[dict] = []
         self.extract_candidates_cache: list[dict] = []
         self.extract_participants_cache: list[dict] = []
+        self.blast_messages: list[dict] = []
         self.view_buttons: dict[str, ttk.Button] = {}
 
         self._configure_style()
@@ -206,15 +207,41 @@ class ExplorerApp(tk.Tk):
         self.blast_product_var = tk.StringVar(value="tu servicio")
         ttk.Entry(product_row, textvariable=self.blast_product_var).pack(side=LEFT, fill=X, expand=True)
 
+        ttk.Label(left, text="Mensajes guardados", style="PanelMuted.TLabel").pack(anchor=W, pady=(4, 6))
+        library = ttk.Frame(left, style="Panel.TFrame")
+        library.pack(fill=X, pady=(0, 10))
+        self.blast_message_list = tk.Listbox(library, height=5, bd=0, bg="#f4efe6", fg=INK, highlightthickness=1, highlightcolor=GOLD)
+        self.blast_message_list.pack(side=LEFT, fill=X, expand=True)
+        self.blast_message_list.bind("<<ListboxSelect>>", self.on_blast_message_select)
+        library_actions = ttk.Frame(library, style="Panel.TFrame")
+        library_actions.pack(side=LEFT, fill="y", padx=(8, 0))
+        ttk.Button(library_actions, text="Nuevo", command=self.add_blast_message).pack(fill=X, pady=(0, 6))
+        ttk.Button(library_actions, text="Actualizar", command=self.update_blast_message).pack(fill=X, pady=(0, 6))
+        ttk.Button(library_actions, text="Borrar", style="Danger.TButton", command=self.delete_blast_message).pack(fill=X)
+
+        name_row = ttk.Frame(left, style="Panel.TFrame")
+        name_row.pack(fill=X, pady=(0, 8))
+        ttk.Label(name_row, text="Nombre", style="PanelMuted.TLabel", width=10).pack(side=LEFT)
+        self.blast_message_name_var = tk.StringVar(value="Promo principal")
+        ttk.Entry(name_row, textvariable=self.blast_message_name_var).pack(side=LEFT, fill=X, expand=True)
+
         self.blast_template = tk.Text(left, height=12, wrap="word", bd=0, bg="#f4efe6", fg=INK, padx=12, pady=12)
         self.blast_template.pack(fill=X)
         self.blast_template.insert(END, "Hola {nombre}, tenemos una promo de {producto}. Si quieres mas info responde SI.")
+        self.blast_messages = [
+            {
+                "name": "Promo principal",
+                "template": self.blast_template.get("1.0", END).strip(),
+            }
+        ]
+        self.refresh_blast_message_list()
+        self.blast_message_list.selection_set(0)
 
         actions = ttk.Frame(left, style="Panel.TFrame")
         actions.pack(fill=X, pady=(12, 0))
         ttk.Button(actions, text="Importar CSV", command=self.import_blast_csv).pack(side=LEFT, padx=(0, 8))
         ttk.Button(actions, text="Preparar cola", style="Accent.TButton", command=self.prepare_blast_campaign).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(actions, text="Guardar plantilla", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT)
+        ttk.Button(actions, text="Guardar todo", style="Gold.TButton", command=self.save_blaster_state).pack(side=LEFT)
         ttk.Button(left, text="Simular ronda", style="Gold.TButton", command=self.simulate_blast_round).pack(anchor=W, pady=(8, 0))
         right = self._panel(view)
         right.grid(row=0, column=1, sticky="nsew")
@@ -489,6 +516,84 @@ class ExplorerApp(tk.Tk):
             value = self.queue.get(idx)
             self.queue.delete(idx)
             self.queue.insert(idx, value.replace("REVISION", "SIMULADO", 1))
+        self.save_blaster_state(show_message=False)
+
+    def refresh_blast_message_list(self) -> None:
+        self.blast_message_list.delete(0, END)
+        for message in self.blast_messages:
+            self.blast_message_list.insert(END, message.get("name", "Mensaje sin nombre"))
+
+    def current_blast_message_index(self) -> int | None:
+        selected = self.blast_message_list.curselection()
+        return int(selected[0]) if selected else None
+
+    def on_blast_message_select(self, _event: tk.Event) -> None:
+        index = self.current_blast_message_index()
+        if index is None or index >= len(self.blast_messages):
+            return
+        message = self.blast_messages[index]
+        self.blast_message_name_var.set(str(message.get("name", "Mensaje sin nombre")))
+        self.blast_template.delete("1.0", END)
+        self.blast_template.insert(END, str(message.get("template", "")))
+
+    def add_blast_message(self) -> None:
+        name = self.blast_message_name_var.get().strip() or f"Mensaje {len(self.blast_messages) + 1}"
+        template = self.blast_template.get("1.0", END).strip()
+        if not template:
+            messagebox.showwarning("Sin mensaje", "Escribe el mensaje antes de guardarlo.")
+            return
+        self.blast_messages.append({"name": name, "template": template})
+        self.refresh_blast_message_list()
+        self.blast_message_list.selection_clear(0, END)
+        self.blast_message_list.selection_set(len(self.blast_messages) - 1)
+        self.save_blaster_state(show_message=False)
+
+    def update_blast_message(self) -> None:
+        index = self.current_blast_message_index()
+        if index is None:
+            self.add_blast_message()
+            return
+        name = self.blast_message_name_var.get().strip() or "Mensaje sin nombre"
+        template = self.blast_template.get("1.0", END).strip()
+        if not template:
+            messagebox.showwarning("Sin mensaje", "Escribe el mensaje antes de actualizarlo.")
+            return
+        self.blast_messages[index] = {"name": name, "template": template}
+        self.refresh_blast_message_list()
+        self.blast_message_list.selection_set(index)
+        self.save_blaster_state(show_message=False)
+
+    def sync_active_blast_message(self) -> None:
+        template = self.blast_template.get("1.0", END).strip()
+        if not template:
+            return
+        name = self.blast_message_name_var.get().strip() or "Mensaje sin nombre"
+        index = self.current_blast_message_index()
+        if index is None or index >= len(self.blast_messages):
+            self.blast_messages.append({"name": name, "template": template})
+            self.refresh_blast_message_list()
+            self.blast_message_list.selection_set(len(self.blast_messages) - 1)
+            return
+        self.blast_messages[index] = {"name": name, "template": template}
+        self.refresh_blast_message_list()
+        self.blast_message_list.selection_set(index)
+
+    def delete_blast_message(self) -> None:
+        index = self.current_blast_message_index()
+        if index is None or index >= len(self.blast_messages):
+            messagebox.showwarning("Sin seleccion", "Selecciona un mensaje para borrarlo.")
+            return
+        if not messagebox.askyesno("Borrar mensaje", f"Borrar `{self.blast_messages[index].get('name', 'Mensaje')}`?"):
+            return
+        del self.blast_messages[index]
+        self.refresh_blast_message_list()
+        if self.blast_messages:
+            next_index = min(index, len(self.blast_messages) - 1)
+            self.blast_message_list.selection_set(next_index)
+            self.on_blast_message_select(tk.Event())
+        else:
+            self.blast_message_name_var.set("Mensaje nuevo")
+            self.blast_template.delete("1.0", END)
         self.save_blaster_state(show_message=False)
 
     def import_whatsapp_txt(self) -> None:
@@ -852,10 +957,24 @@ class ExplorerApp(tk.Tk):
         except json.JSONDecodeError:
             return
         self.blast_product_var.set(str(data.get("product", self.blast_product_var.get())))
-        template = str(data.get("template", "")).strip()
-        if template:
-            self.blast_template.delete("1.0", END)
-            self.blast_template.insert(END, template)
+        messages = data.get("messages", [])
+        if isinstance(messages, list) and messages:
+            self.blast_messages = [
+                {
+                    "name": str(item.get("name") or f"Mensaje {idx + 1}"),
+                    "template": str(item.get("template") or ""),
+                }
+                for idx, item in enumerate(messages)
+                if isinstance(item, dict) and str(item.get("template") or "").strip()
+            ]
+        else:
+            template = str(data.get("template", "")).strip()
+            if template:
+                self.blast_messages = [{"name": "Promo principal", "template": template}]
+        self.refresh_blast_message_list()
+        if self.blast_messages:
+            self.blast_message_list.selection_set(0)
+            self.on_blast_message_select(tk.Event())
         items = data.get("queue", [])
         if isinstance(items, list):
             self.queue.delete(0, END)
@@ -864,8 +983,11 @@ class ExplorerApp(tk.Tk):
 
     def save_blaster_state(self, *, show_message: bool = True) -> None:
         LOCAL_DIR.mkdir(parents=True, exist_ok=True)
+        self.sync_active_blast_message()
         data = {
             "product": self.blast_product_var.get(),
+            "messages": self.blast_messages,
+            "active_message": self.blast_message_name_var.get(),
             "template": self.blast_template.get("1.0", END).strip(),
             "queue": list(self.queue.get(0, END)),
         }
